@@ -125,7 +125,7 @@ cmd_apps() {
       for r in "${roles[@]}"; do
         if [ "$DRY" = 1 ]; then say "PLAN   create GitHub App ${project}-${r} (opens your browser; you click 'Create GitHub App'), then store the key and id for $r"; continue; fi
         say "== role $r: a browser tab opens; click 'Create GitHub App' on github.com"
-        python3 "$HERE/lib/app_manifest.py" --project "$project" --role "$r" --owner "$owner" "${orgflag[@]}" "${singleflag[@]}" --repos "$repos" || { say "FAIL   app for $r"; FAILED=1; }
+        python3 "$HERE/lib/app_manifest.py" --project "$project" --role "$r" --owner "$owner" ${orgflag[@]+"${orgflag[@]}"} ${singleflag[@]+"${singleflag[@]}"} --repos "$repos" || { say "FAIL   app for $r"; FAILED=1; }
       done
       say "NEXT   install each new App on: $repos (the INSTALL links above), then run: crew doctor $cfg"
       [ "$FAILED" = 0 ] || exit 1 ;;

@@ -12,34 +12,61 @@ import argparse, os, pty, re, select, shlex, subprocess, sys
 
 TOKEN = re.compile(rb"sk-ant-[A-Za-z0-9_-]{20,}")
 
+def mask_lines(state, chunk):
+    """Line-based masking that survives a token being wrapped across lines by the terminal.
+    state = {"partial": bytes, "hiding": bool}. Returns bytes that are safe to show.
+    A line containing a token (or its prefix) is replaced, and the lines that follow up to the next blank line
+    are hidden too, because the terminal may have wrapped the rest of the token onto them."""
+    out = []
+    data = state["partial"] + chunk
+    *lines, state["partial"] = data.split(b"\n")
+    for line in lines:
+        plain = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]|\r", b"", line)
+        if state["hiding"]:
+            if plain.strip() == b"": state["hiding"] = False; out.append(line + b"\n")
+            continue
+        if TOKEN.search(plain) or b"sk-ant-" in plain:
+            out.append(b"<token hidden>\n"); state["hiding"] = True
+        else:
+            out.append(line + b"\n")
+    return b"".join(out)
+
+def flush_partial(state):
+    """Show an unfinished line (a prompt) only if it cannot contain a token."""
+    p = state["partial"]
+    if p and not state["hiding"] and b"sk-ant" not in p and not TOKEN.search(p):
+        state["partial"] = b""; return p
+    return b""
+
 def run_pty(argv):
     """Run argv in a pty, echo masked output, return (exit code, token bytes or None)."""
     pid, fd = pty.fork()
     if pid == 0:
         os.execvp(argv[0], argv)
-    buf = b""; token = None
+    buf = b""; token = None; state = {"partial": b"", "hiding": False}
     stdin_open = sys.stdin.isatty()
     while True:
         rlist = [fd] + ([sys.stdin] if stdin_open else [])
         try: r, _, _ = select.select(rlist, [], [], 0.5)
         except (ValueError, OSError): r = [fd]
+        if not r:
+            sys.stdout.buffer.write(flush_partial(state)); sys.stdout.buffer.flush()
         if fd in r:
             try: chunk = os.read(fd, 4096)
             except OSError: chunk = b""
             if not chunk: break
             buf += chunk
-            m = TOKEN.search(buf)
-            if m and token is None: token = m.group(0)
-            sys.stdout.buffer.write(TOKEN.sub(b"<token hidden>", chunk)); sys.stdout.buffer.flush()
+            sys.stdout.buffer.write(mask_lines(state, chunk)); sys.stdout.buffer.flush()
         if stdin_open and sys.stdin in r:
             data = os.read(sys.stdin.fileno(), 1024)
             if data: os.write(fd, data)
     _, status = os.waitpid(pid, 0)
     code = os.waitstatus_to_exitcode(status)
-    # A token split across two reads: search the whole buffer once more.
-    if token is None:
-        m = TOKEN.search(re.sub(rb"\x1b\[[0-9;]*[A-Za-z]|[\r\n]", b"", buf))
-        if m: token = m.group(0)
+    sys.stdout.buffer.write(flush_partial(state)); sys.stdout.buffer.flush()
+    # The token may have been wrapped across lines by the terminal: search the whole output without breaks or escapes.
+    flat = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]|[\r\n]", b"", buf)
+    m = TOKEN.search(flat)
+    if m: token = m.group(0)
     return code, token
 
 def main():

@@ -54,4 +54,15 @@ out=$(bash "$CREW" apps create --crew "$P" --single --plan 2>&1); [ "$(grep -c '
 out=$(bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "enable crew-schedule-worker in acme/plan" <<<"$out" && ok "activate enables the schedules when the Claude token exists" || no "activate enables the schedules: $out"
 out=$(STUB_NO_SECRETS=1 bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "no Claude token in acme/plan" <<<"$out" && ok "activate leaves schedules off without a Claude token" || no "activate leaves schedules off without a Claude token"
 bash "$CREW" activate --crew "$S/none.json" --yes >/dev/null 2>&1 && no "activate needs a crew.json" || ok "activate needs a crew.json"
+# the real (non-dry) apps path, with python3 stubbed: empty option arrays must not break bash 3.2 under set -u
+mkdir -p "$S/pybin"; cat > "$S/pybin/python3" <<PYS
+#!/usr/bin/env bash
+echo "\$*" >> "$S/py.args"
+exit 0
+PYS
+chmod +x "$S/pybin/python3"
+out=$(PATH="$S/pybin:$PATH" bash "$CREW" apps create --crew "$P" --single 2>&1); rc=$?
+[ "$rc" = 0 ] && ! grep -q "unbound variable" <<<"$out" && grep -q -- "--single" "$S/py.args" && ok "apps create --single runs (no unbound-variable error)" || no "apps create --single runs: rc=$rc $out"
+: > "$S/py.args"; out=$(PATH="$S/pybin:$PATH" bash "$CREW" apps create --crew "$P" --org --role lead 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -q -- "--org" "$S/py.args" && ! grep -q -- "--single" "$S/py.args" && ok "apps create --org --role passes only --org" || no "apps create --org --role: rc=$rc $out"
 rm -rf "$S"; echo "crew-cli.test: $pass passed, $failn failed"; [ "$failn" = 0 ]
