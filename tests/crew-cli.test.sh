@@ -26,7 +26,7 @@ bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/a
 P="$S/crew.json"; jq '.repos.plan="acme/plan" | .repos.code=["acme/app"]' "$HERE/../examples/domain-pack/crew.json" > "$P"
 out=$(bash "$CREW" doctor "$P" 2>&1); rc=$?
 grep -q "OK     crew.json is valid" <<<"$out" && [ "$rc" = 0 ] && ok "doctor passes on a healthy setup" || no "doctor passes on a healthy setup: rc=$rc"
-out=$(STUB_NO_SECRETS=1 bash "$CREW" doctor "$P" 2>&1); grep -q "WARN   acme/app: secret CLAUDE_CODE_OAUTH_TOKEN missing" <<<"$out" && ok "doctor warns on a missing secret" || no "doctor warns on a missing secret"
+out=$(STUB_NO_SECRETS=1 bash "$CREW" doctor "$P" 2>&1); grep -q "WARN   acme/app: CLAUDE_CODE_OAUTH_TOKEN missing" <<<"$out" && ok "doctor warns on a missing secret" || no "doctor warns on a missing secret"
 jq '.repos.code=["missing/app"]' "$P" > "$S/c2.json"; bash "$CREW" doctor "$S/c2.json" >/dev/null 2>&1 && no "doctor fails on an unreachable repo" || ok "doctor fails on an unreachable repo"
 bash "$CREW" doctor "$S/none.json" >/dev/null 2>&1 && no "doctor fails without crew.json" || ok "doctor fails without crew.json"
 out=$(bash "$CREW" apps create --crew "$P" --plan 2>&1)
@@ -42,4 +42,16 @@ c=$(bash "$CREW" _install-callers acme/app h/r main actions /tmp 1 acme/plan cod
 [ "$c" = "         would add: crew-review.yml crew-wake.yml " ] && ok "code repo callers: wake and review only" || no "code repo callers: $c"
 grep -q "crew-schedule-worker.yml" <<<"$p" && ! grep -q "crew-review.yml" <<<"$p" && ok "plan repo callers: schedules, no review" || no "plan repo callers: $p"
 p=$(bash "$CREW" _install-callers acme/plan h/r main routines /tmp 1 acme/plan plan); ! grep -q "crew-schedule" <<<"$p" && ok "routines runner installs no schedule callers" || no "routines runner installs no schedule callers"
+# zero-paste flow
+out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app 2>&1)
+grep -q "log in to Claude (browser) and store CLAUDE_CODE_OAUTH_TOKEN in: acme/plan,acme/app" <<<"$out" && ok "init --plan: Claude login stores the token in every repo" || no "init --plan: Claude login stores the token in every repo"
+grep -q "create ONE GitHub App for the crew" <<<"$out" && ok "init --plan: default identity is one shared App" || no "init --plan: default identity is one shared App"
+if grep -qE "gh secret set|paste" <<<"$out"; then no "init --plan asks the user to paste nothing"; else ok "init --plan asks the user to paste nothing"; fi
+out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --identity roles 2>&1); grep -q "one GitHub App per role" <<<"$out" && ok "identity=roles creates one App per role" || no "identity=roles creates one App per role"
+out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --no-claude-login 2>&1); grep -q "claude login skipped" <<<"$out" && ok "--no-claude-login skips the login" || no "--no-claude-login skips the login"
+bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --identity solo >/dev/null 2>&1 && no "old identity name rejected" || ok "old identity name rejected"
+out=$(bash "$CREW" apps create --crew "$P" --single --plan 2>&1); [ "$(grep -c '^PLAN   create GitHub App' <<<"$out")" = 1 ] && grep -q "example-crew" <<<"$out" && ok "apps create --single makes exactly one App" || no "apps create --single makes exactly one App: $out"
+out=$(bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "enable crew-schedule-worker in acme/plan" <<<"$out" && ok "activate enables the schedules when the Claude token exists" || no "activate enables the schedules: $out"
+out=$(STUB_NO_SECRETS=1 bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "no Claude token in acme/plan" <<<"$out" && ok "activate leaves schedules off without a Claude token" || no "activate leaves schedules off without a Claude token"
+bash "$CREW" activate --crew "$S/none.json" --yes >/dev/null 2>&1 && no "activate needs a crew.json" || ok "activate needs a crew.json"
 rm -rf "$S"; echo "crew-cli.test: $pass passed, $failn failed"; [ "$failn" = 0 ]

@@ -18,7 +18,7 @@ Limits:
 - No state survives a run. Anything the agent does not push is lost, as in a routine's fresh VM.
 - Scheduled runs are best effort: delayed at busy times, and can be dropped (vendor-doc). Scheduled workflows in a public repo are disabled after 60 days without repo activity (vendor-doc).
 - Cron is UTC, 5 minutes is the shortest interval (vendor-doc).
-- Cloning code repos other than the plan repo relies on `CREW_REPO_TOKEN` (unverified end to end).
+- Cloning code repos other than the plan repo uses the crew App token (or `CREW_REPO_TOKEN`); unverified end to end.
 
 ## 2. Claude routines runner
 
@@ -50,8 +50,9 @@ Every caller passes `secrets: inherit`, so the called workflow sees the caller r
 
 | Secret | Needed by | Notes |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Actions runner, review | Claude Code OAuth token for `claude-code-action`. Not needed for the routines runner alone. |
-| `CREW_REPO_TOKEN` | all workflows that read another repo | A token (fine-grained PAT or App token) with read on the plan and harness repos, and write on the plan and code repos for `role-run.yml`. Optional when everything is public and in one repo: workflows fall back to `github.token`. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Actions runner, review | Claude Code OAuth token for `claude-code-action`, fetched by `crew init` through `claude setup-token` (never pasted). Not needed for the routines runner alone. |
+| `CREW_APP_ID` (variable) + `CREW_APP_KEY` (secret) | all workflows that read another repo | The crew GitHub App, created by `crew apps create --single` (or `crew init`). Workflows mint a short-lived installation token from it at run time. |
+| `CREW_REPO_TOKEN` | optional fallback | A fine-grained personal access token, only if you choose `--identity token`. |
 | One fire token per routine, named by `roles.<role>.secret` | wake.yml, routines runner only | Created in the web UI per routine. Exported as an env var by name; never printed. |
 | `AGENT_APP_KEY_<ROLE>` | optional, Actions runner | A role's GitHub App key so it posts under its own identity. Without it the run uses `CREW_REPO_TOKEN`. |
 | `GH_AUTOMATION_TOKEN` | optional, change-sync | Edits the org Project and code PR bodies. Without it change-sync writes labels only. |
