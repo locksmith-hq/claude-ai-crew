@@ -81,4 +81,5 @@ out=$(PATH="$S/pybin:$PATH" bash "$CREW" apps create --crew "$P" --single 2>&1);
 grep -q -- "--org" "$S/py.args" && ok "apps create detects an organization owner and passes --org" || no "apps create detects an organization owner: $(cat "$S/py.args")"
 jq '.repos.plan="someone/plan" | .repos.code=["someone/app"]' "$P" > "$S/u.json"; : > "$S/py.args"; PATH="$S/pybin:$PATH" bash "$CREW" apps create --crew "$S/u.json" --single >/dev/null 2>&1
 grep -q -- "--org" "$S/py.args" && no "a personal owner does not get --org" || ok "a personal owner does not get --org"
+bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --force-claude >/dev/null 2>&1 && ok "--force-claude is accepted" || no "--force-claude is accepted"
 rm -rf "$S"; echo "crew-cli.test: $pass passed, $failn failed"; [ "$failn" = 0 ]
