@@ -12,6 +12,13 @@ on:
         description: Extra instruction for this run
         default: ""
 
+permissions:   # a reusable workflow can only use what its caller grants: role-run.yml needs all of these
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
 jobs:
   run:
     uses: <HARNESS_REPO>/.github/workflows/role-run.yml@<HARNESS_REF>
