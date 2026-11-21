@@ -18,7 +18,7 @@ Limits:
 - No state survives a run. Anything the agent does not push is lost, as in a routine's fresh VM.
 - Scheduled runs are best effort: delayed at busy times, and can be dropped (vendor-doc). Scheduled workflows in a public repo are disabled after 60 days without repo activity (vendor-doc).
 - Cron is UTC, 5 minutes is the shortest interval (vendor-doc).
-- Cloning code repos other than the plan repo uses the crew App token (or `CREW_REPO_TOKEN`); unverified end to end.
+- Cloning code repos other than the plan repo uses the crew App token (or `CREW_REPO_TOKEN`). Verified: a worker run cloned the code repo, pushed a branch and opened a PR (observed 2026-11).
 
 ## 2. Claude routines runner
 
@@ -70,6 +70,19 @@ Set the secrets at org level to share them across repos.
 
 Start with whichever you already pay for. Both use the same prompts, scripts and plan repo, so a role can move between them without other changes.
 
-## Not verified
+## Verified on real runs (observed 2026-11)
 
-The workflows pass `actionlint` and the callers parse after substitution. They have not run on GitHub. In particular unverified: `secrets: inherit` making undeclared secrets visible to `toJSON(secrets)` in `wake.yml` (vendor docs say all secrets are passed; check on first run), cloning extra code repos in `role-run.yml`, and `claude-code-action` in agent mode on `schedule` with an explicit `github_token`.
+A sandbox (a private plan repo and a private code repo in one organization) ran the whole path on GitHub:
+- `crew init` created the plan repo, labels and install PRs, stored the credentials and activated, with no web step except the Claude login.
+- A `workflow_dispatch` worker run (`role-run.yml`, about 70 seconds) minted a GitHub App token, checked out the harness, plan and code repos, started Claude, edited the code repo, pushed `claude/<topic>`, opened a PR as the App with the `in-progress` label and the attribution line, and the code repo's CI passed.
+- Confirmed along the way: `secrets: inherit` passes secrets (including `toJSON(secrets)`) into a reusable workflow; `vars.CREW_APP_ID` is visible in a reusable workflow; `actions/create-github-app-token` mints an organization-wide token inside it; the reusable `change-sync` workflow ran from a caller in another repo.
+
+Eight real problems only a live run found are in `recipes/lessons.md` (31 to 38). Each is covered by a test now.
+
+## Not yet verified
+
+- The review path: `review.yml` starts when auto-merge is enabled on a PR. GitHub's free plan has no auto-merge or required checks on private repos, so it needs a public repo or a paid plan to test (and to enforce the `merge-ready` status).
+- Wake and routing: the wake workflow, the lead and PM roles, and the help-channel issues (`needs-rescue`, `debate`, ...).
+- `claude-code-action` in agent mode on a real `schedule` event (the run above was `workflow_dispatch`; schedule runs were enabled but not inspected).
+- More than one code repo, and a plan repo and code repo under different owners.
+- The routines runner end to end.

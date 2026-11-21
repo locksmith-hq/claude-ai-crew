@@ -61,3 +61,20 @@ Project-independent lessons from running scheduled Claude Code agents in cloud s
 29. **Hosted CI minutes can force you to disable checks.** Lesson: decide the repo visibility and CI budget up front; a gate that skips disabled checks is weak. What happened: private-repo minute limits led to CI and review being turned off for a time; a public repo restored free runners. Observed 2026-11.
 
 30. **Test every cloud-only assumption on the first run.** Lesson: mark undocumented behaviours as "to test" and verify them in a first manual run (notifications, network allowlist on web tools, daemon start). What happened: several documented behaviours differed from reality (registry 403, proxy, usage tool). Observed 2026-11.
+
+31. **A reusable workflow can only use the permissions its caller grants.** Lesson: give every caller job at least the permissions the called workflow requests, and test it. What happened: the first real run ended in `startup_failure` ("requesting `contents: write`... but is only allowed `contents: read`"). A test now compares each caller's grants with its reusable workflow's requests. Observed 2026-11; verified.
+
+32. **`claude-code-action` needs a real git repository at the workspace root.** Lesson: when you check several repos into subfolders, make the root a repo with an `origin` remote and a HEAD (`git init`, `git remote add origin`, an empty commit). What happened: `fatal: not in a git directory`, then `No such remote 'origin'`. Observed 2026-11; verified.
+
+33. **Never parse a full-screen terminal UI by joining its raw output; and never store a credential you did not test.** Lesson: read such a tool through a virtual terminal that applies cursor moves and erases, never echo its output, and check the credential with a real call (`claude -p`) before storing it. What happened: `claude setup-token` repaints its screen, joining the output put the login URL inside the token, the stored token was invalid (401) and a wide terminal did not fix it. Observed 2026-11; verified.
+
+34. **On macOS, do not rely on a Python install for HTTPS.** Lesson: make HTTPS calls through `gh` or `curl`, which use the system certificates. What happened: a python.org build failed `urllib` with `CERTIFICATE_VERIFY_FAILED` on the first real GitHub App creation. Observed 2026-11; verified.
+
+35. **Portable shell: macOS bash 3.2 and BSD tools differ.** Lesson: write `${a[@]+"${a[@]}"}` for possibly empty arrays under `set -u`; do not rely on `cp -n` exit codes; do not assume GNU `timeout` exits with the same code as BSD `timeout` (124 versus 137 on a KILL). What happened: three of these broke on one platform and passed on the other. Observed 2026-11; verified.
+
+36. **A private GitHub App can only be installed on its owner's account.** Lesson: create the App under the organization that owns the repos (the manifest flow has an organization URL), and install it on only the repos it needs. What happened: an App created under a personal account could not be installed on organization repos. Observed 2026-11; verified.
+
+37. **GitHub requires a human click to create and install an App.** Lesson: there is no API for either step, so any App-based setup needs a browser; a setup that must be fully scripted should use the `gh` login token (with its wider access) and offer Apps as an opt-in. Observed 2026-11; verified.
+
+38. **The free GitHub plan cannot enforce review on private repos.** Lesson: no branch protection, required status checks or auto-merge on private repos means an AI review can run but cannot block a merge; decide the repo visibility or plan up front. What happened: the review workflow could not be triggered on the sandbox. Observed 2026-11; verified.
+

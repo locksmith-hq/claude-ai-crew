@@ -20,6 +20,16 @@ for the parts only you can do. Prefer the terminal? Run the commands yourself.
 
 Schedules: with the Actions runner the schedule callers run on their cron (edit the cron lines to taste, avoid your busy hours). With routines, see [recipes/routines.md](recipes/routines.md).
 
+## What has been verified
+
+A full run on a sandbox (private plan repo plus private code repo in one organization): `crew init` and activation, then a worker run that opened a PR in the code repo as the crew App. The review path, wake routing, the lead and PM roles and the routines runner have not been exercised yet; see [runners.md](runners.md#not-yet-verified).
+
+## Known limits
+
+- The Claude login is the one step that can need your browser (approve it, and paste a one-time code if the page shows one). Export `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` to skip it. Every credential is checked with `claude -p` before it is stored.
+- With `--identity gh` agents act as you. GitHub Apps need two clicks on github.com (create, install); create the App under the organization that owns the repos.
+- On GitHub's free plan, private repos cannot require status checks or use auto-merge, so the review workflow cannot be enforced there.
+
 ## GitHub Apps (optional)
 The App step uses GitHub's App manifest flow entirely on your machine: a local page posts the manifest to GitHub in your
 browser, GitHub redirects back to `http://127.0.0.1`, and the script trades the one-time code for the key. Nothing is
