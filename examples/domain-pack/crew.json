@@ -1,0 +1,123 @@
+{
+  "project": "example",
+  "owner": {
+    "login": "your-github-login"
+  },
+  "repos": {
+    "harness": "your-org/claude-ai-crew",
+    "plan": "your-org/example-plan",
+    "code": [
+      "your-org/example"
+    ]
+  },
+  "commands": {
+    "quick": "make quick",
+    "ci": "make ci",
+    "setup": "make setup"
+  },
+  "paths": {
+    "decisions": "decisions.md",
+    "owner_rules": "owner.md",
+    "lessons": "lessons.md",
+    "roadmap": "roadmap.md",
+    "changes": "changes/",
+    "schedules": "schedules.md",
+    "research": "research/"
+  },
+  "issues": {
+    "agent_log": 0,
+    "harness_backlog": 0
+  },
+  "schedule": {
+    "timezone": "UTC",
+    "weekly_reset_day": "Saturday",
+    "harness_start_date": "2026-01-01"
+  },
+  "merge": {
+    "required_checks": [
+      "ci"
+    ],
+    "protected_paths": [
+      ".github/workflows/",
+      "crew.json",
+      "owner.md"
+    ]
+  },
+  "research": {
+    "dependency_watchlist": []
+  },
+  "roles": {
+    "lead": {
+      "app": "example-lead",
+      "trigger": "trig_REPLACE_ME",
+      "secret": "LEAD_FIRE_TOKEN"
+    },
+    "worker-a": {
+      "app": "example-worker-a",
+      "trigger": "trig_REPLACE_ME",
+      "secret": "WORKER_A_FIRE_TOKEN"
+    },
+    "pm": {
+      "app": "example-pm",
+      "trigger": "trig_REPLACE_ME",
+      "secret": "PM_FIRE_TOKEN"
+    },
+    "research": {
+      "app": "example-research",
+      "trigger": "trig_REPLACE_ME",
+      "secret": "RESEARCH_FIRE_TOKEN"
+    }
+  },
+  "channels": {
+    "needs-rescue": {
+      "from": [
+        "worker-a"
+      ],
+      "to": "lead",
+      "on_close": "raiser"
+    },
+    "needs-owner": {
+      "from": [
+        "lead"
+      ],
+      "to": "owner",
+      "on_reply": "raiser",
+      "on_close": "worker-a"
+    },
+    "debate": {
+      "between": [
+        "pm",
+        "lead"
+      ],
+      "turns": 3,
+      "escalate_to": "lead"
+    },
+    "needs-research": {
+      "from": [
+        "lead",
+        "pm",
+        "worker-a"
+      ],
+      "to": "research",
+      "on_close": "raiser"
+    },
+    "needs-work": {
+      "from": [
+        "worker-a"
+      ],
+      "to": "pm",
+      "on_close": "raiser"
+    }
+  },
+  "default_worker": "worker-a",
+  "trust_root": [
+    ".github/workflows/",
+    "crew.json",
+    "owner.md"
+  ],
+  "agent_system": [
+    "prompts/",
+    "skills/",
+    "scripts/"
+  ]
+}
