@@ -13,7 +13,9 @@
   "commands": {
     "quick": "make quick",
     "ci": "make ci",
-    "setup": "make setup"
+    "setup": "make setup",
+    "free_disk": "rm -rf build/cache",
+    "free_disk_skip_if_running": "make"
   },
   "paths": {
     "decisions": "decisions.md",
@@ -46,6 +48,26 @@
   "research": {
     "dependency_watchlist": []
   },
+  "review": {
+    "checklist": [
+      "No secret or credential is added to the repo or logged"
+    ]
+  },
+  "preflight": [
+    {
+      "name": "node",
+      "cmd": "node --version",
+      "level": "fail",
+      "hint": "node is missing"
+    },
+    {
+      "name": "deps",
+      "cmd": "test -d node_modules",
+      "level": "warn",
+      "hint": "install dependencies in the background before tests"
+    }
+  ],
+  "stack_checks": [],
   "roles": {
     "lead": {
       "app": "example-lead",
