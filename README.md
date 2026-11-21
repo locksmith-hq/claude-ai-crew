@@ -4,8 +4,10 @@ A reusable harness for running a **team of scheduled Claude Code agents** on any
 It holds the roles, prompts, skills, routing rules, scripts and the hard-won recipes. Your project
 supplies a small **domain pack** (a config file plus your own rules and plan); the crew does the rest.
 
-> Status: early. Prompts, skills, scripts, reusable workflows, the `crew` setup CLI and the recipes are here and
-> tested offline. Nothing has been run end to end against GitHub yet; treat it as a release candidate and report what breaks.
+> Status: early but run for real. Prompts, skills, scripts, reusable workflows, the `crew` setup CLI and the recipes are
+> here and tested offline. On a sandbox, setup ran with no web step but the Claude login, and a worker run opened a PR
+> in the code repo. The review path, wake routing, lead and PM roles and the routines runner are not yet exercised
+> (see [docs/runners.md](docs/runners.md#not-yet-verified)). Report what breaks.
 
 ## What you get
 
