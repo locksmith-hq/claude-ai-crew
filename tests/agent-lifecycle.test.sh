@@ -66,7 +66,7 @@ PYS
 python3 "$W/appsrv.py" "$W/hits.log" > "$W/appsrv.port" & APPSRV=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$W/appsrv.port" ] && break; sleep 0.3; done
 REALBIN="$(dirname "$(command -v curl)"):$(dirname "$(command -v jq)"):/usr/bin:/bin"   # the test bin stubs curl; this check needs the real one
-out=$(E env PATH="$REALBIN" AGENT_API_URL="http://127.0.0.1:$(cat "$W/appsrv.port")" AGENT_APP_KEY_LEAD=bm90IGEga2V5 bash "$S/agent-identity.sh" setup lead 2>&1)
+out=$(E env PATH="$REALBIN" AGENT_API_URL="http://127.0.0.1:$(cat "$W/appsrv.port")" AGENT_APP_KEY_LEAD="$(printf "not a key" | openssl base64 -A)" bash "$S/agent-identity.sh" setup lead 2>&1)
 grep -q "^/apps/example-lead" "$W/hits.log" && ok "a missing App id is looked up by slug (GET /apps/<slug>)" || no "App id lookup by slug: $(cat "$W/hits.log" 2>/dev/null) $out"
 kill "$APPSRV" 2>/dev/null; wait "$APPSRV" 2>/dev/null
 # ---- bg.sh
