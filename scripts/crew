@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # crew: set up and check a claude-ai-crew installation.
 #   crew init   [--plan] --project NAME --plan-repo ORG/NAME --code-repo ORG/NAME [--code-repo ...]
-#               [--runner actions|routines] [--identity gh|app|roles|token] [--no-web] [--force-claude] [--no-activate] [--harness-repo ORG/NAME] [--harness-ref REF]
+#               [--runner actions|routines] [--workers N] [--identity gh|app|roles|token] [--no-web] [--force-claude] [--no-activate] [--harness-repo ORG/NAME] [--harness-ref REF]
 #   crew apps create [--crew path/to/crew.json] [--single | --role R ...] [--org] [--plan]   GitHub App(s) via the manifest flow
+#   crew schedules [--crew path/to/crew.json] [--apply]   show every role's schedule; --apply opens a PR that regenerates them
 #   crew activate [--crew path/to/crew.json] [--yes]   merge the install PRs, enable the schedules, run doctor
 #   crew apps list   [--crew path/to/crew.json]                                    which roles have an App key and id stored
 #   crew doctor [path/to/crew.json]
@@ -12,7 +13,7 @@
 # Browser steps exist only as fallbacks (`claude setup-token`, GitHub Apps with identity=app|roles).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; HARNESS="$(cd "$HERE/.." && pwd)"
-DRY=0; PROJECT=""; PLAN=""; CODES=(); RUNNER=actions; IDENT=gh; NOWEB=0; FORCECL=0; ACTIVATE=1
+DRY=0; PROJECT=""; PLAN=""; CODES=(); RUNNER=actions; IDENT=gh; NOWEB=0; FORCECL=0; ACTIVATE=1; WORKERS=2
 HREPO="locksmith-hq/claude-ai-crew"; HREF=main
 say() { printf '%s\n' "$*"; }
 die() { echo "crew: $*" >&2; exit 2; }
@@ -24,13 +25,14 @@ LABELS="needs-rescue needs-owner needs-research needs-work debate harness-backlo
 cmd_init() {
   while [ $# -gt 0 ]; do case "$1" in
     --plan) DRY=1 ;; --project) PROJECT="$2"; shift ;; --plan-repo) PLAN="$2"; shift ;;
-    --code-repo) CODES+=("$2"); shift ;; --runner) RUNNER="$2"; shift ;; --identity) IDENT="$2"; shift ;; --no-web) NOWEB=1 ;; --force-claude) FORCECL=1 ;; --no-activate) ACTIVATE=0 ;;
+    --code-repo) CODES+=("$2"); shift ;; --runner) RUNNER="$2"; shift ;; --identity) IDENT="$2"; shift ;; --workers) WORKERS="$2"; shift ;; --no-web) NOWEB=1 ;; --force-claude) FORCECL=1 ;; --no-activate) ACTIVATE=0 ;;
     --harness-repo) HREPO="$2"; shift ;; --harness-ref) HREF="$2"; shift ;; *) die "unknown option: $1" ;; esac; shift; done
   [ -n "$PROJECT" ] && [ -n "$PLAN" ] && [ "${#CODES[@]}" -gt 0 ] || die "init needs --project, --plan-repo and at least one --code-repo"
   case "$RUNNER" in actions|routines) ;; *) die "--runner must be actions or routines" ;; esac
   [ "$IDENT" = single ] && IDENT=app
   case "$IDENT" in gh|app|roles|token) ;; *) die "--identity must be gh, app, roles or token" ;; esac
   for r in "$PLAN" "${CODES[@]}"; do [[ "$r" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "not an owner/name repo: $r"; done
+  [[ "$WORKERS" =~ ^[1-9]$ ]] || die "--workers must be a number from 1 to 9"
   command -v gh >/dev/null && command -v jq >/dev/null && command -v git >/dev/null || die "gh, jq and git are required"
   if [ "$DRY" = 1 ]; then owner="<your-login>"; else owner=$(gh api user --jq .login) || die "gh is not logged in"; fi
   work="${CREW_WORK_DIR:-$(mktemp -d)}"
@@ -40,10 +42,10 @@ cmd_init() {
   if [ "$DRY" = 1 ] || ! gh repo view "$PLAN" >/dev/null 2>&1; then act "create private repo $PLAN" gh repo create "$PLAN" --private --add-readme; fi
   # 2. domain pack and starter files, committed to the plan repo's default branch
   pack="$work/crew.json"
-  codes_json=$(printf '%s\n' "${CODES[@]}" | jq -R . | jq -s .)
-  jq --arg p "$PROJECT" --arg o "$owner" --arg plan "$PLAN" --arg h "$HREPO" --argjson c "$codes_json" \
-    '.project=$p | .owner.login=$o | .repos={harness:$h,plan:$plan,code:$c}' "$HARNESS/examples/domain-pack/crew.json" > "$pack" 2>/dev/null || true
-  [ "$DRY" = 1 ] && say "PLAN   write crew.json, owner.md, lessons.md, decisions.md, roadmap.md to $PLAN (skipped if present)" || {
+  codeargs=(); for c in "${CODES[@]}"; do codeargs+=(--code "$c"); done
+  python3 "$HERE/lib/schedules.py" init-pack --project "$PROJECT" --owner "$owner" --plan "$PLAN" --harness "$HREPO" --workers "$WORKERS" \
+    --base "$HARNESS/examples/domain-pack/crew.json" --out "$pack" "${codeargs[@]}" 2>/dev/null || true
+  [ "$DRY" = 1 ] && say "PLAN   write crew.json ($WORKERS workers + lead, pm, research), owner.md, lessons.md, decisions.md, roadmap.md to $PLAN (skipped if present)" || {
     bash "$HERE/validate-pack.sh" "$pack" >/dev/null || die "generated crew.json is invalid"
     act "clone $PLAN and add the domain pack" bash -c "
       git clone -q 'https://github.com/$PLAN.git' '$work/plan' && cd '$work/plan' &&
@@ -87,11 +89,11 @@ cmd_install_callers() {
       case "$kind:$b" in
         code:crew-wake.yml|code:crew-review.yml) echo "$f" ;;
         plan:crew-wake.yml|plan:crew-change-sync.yml|plan:crew-owner-alert.yml) echo "$f" ;;
-        plan:crew-schedule-*) [ "$runner" = actions ] && echo "$f" ;;
       esac
     done
   }
-  [ "$dry" = 1 ] && { say "         would add: $(callers_for | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"; return 0; }
+  [ "$dry" = 1 ] && {
+    say "         would add: $(callers_for | xargs -n1 basename 2>/dev/null | tr '\n' ' ')$([ "$kind" = plan ] && [ "$runner" = actions ] && echo "+ one crew-schedule-<role>.yml per role (generated from crew.json)")"; return 0; }
   # Idempotent: an open install PR means a previous run already did this.
   [ "$(gh pr list -R "$repo" --head crew/install-workflows --state open --json number --jq length 2>/dev/null || echo 0)" -gt 0 ] 2>/dev/null &&
     { say "         install PR already open in $repo, skipping"; return 0; }
@@ -102,6 +104,10 @@ cmd_install_callers() {
   for f in $(callers_for); do
     sed -e "s#<HARNESS_REPO>#$hrepo#g" -e "s#<HARNESS_REF>#$href#g" -e "s#<PLAN_REPO>#$plan#g" "$f" > "$d/.github/workflows/$(basename "$f")"
   done
+  # Schedules are generated from crew.json (one caller per role), not copied from fixed templates.
+  if [ "$kind" = plan ] && [ "$runner" = actions ] && [ -f "$work/plan/crew.json" ]; then
+    python3 "$HERE/lib/schedules.py" render --crew "$work/plan/crew.json" --out "$d/.github/workflows" --harness-repo "$hrepo" --harness-ref "$href" >/dev/null || return 1
+  fi
   git -C "$d" add -A && git -C "$d" diff --cached --quiet && return 0
   git -C "$d" commit -q -m "Install claude-ai-crew workflow callers" && git -C "$d" push -q -u origin crew/install-workflows &&
     gh pr create -R "$repo" --head crew/install-workflows --title "Install claude-ai-crew workflow callers" \
@@ -178,6 +184,10 @@ cmd_doctor() {
       done
     else ok "$r: no per-role Apps stored (solo identity)"; fi
   done
+  local role
+  for role in $(python3 "$HERE/lib/schedules.py" roles --crew "$cfg" 2>/dev/null); do
+    gh api "repos/$plan/actions/workflows/crew-schedule-$role.yml" >/dev/null 2>&1 && ok "schedule caller for $role installed" || warn "no schedule caller for $role in $plan (run: crew schedules --apply)"
+  done
   for l in needs-rescue needs-owner needs-research needs-work debate harness-backlog; do
     gh api "repos/$plan/labels/$l" >/dev/null 2>&1 && ok "label $l" || warn "label $l missing in $plan"
   done
@@ -195,6 +205,35 @@ cmd_store_repo_token() {
   for r in "$@"; do
     gh auth token | gh secret set CREW_REPO_TOKEN -R "$r" >/dev/null && say "STORED CREW_REPO_TOKEN in $r" || { say "FAIL   could not store CREW_REPO_TOKEN in $r"; return 1; }
   done
+}
+
+# crew schedules [--crew crew.json] [--apply]: show every role's schedule; --apply regenerates the callers in a PR
+cmd_schedules() {
+  local cfg="${CREW_CONFIG:-./crew.json}" apply=0 runner=actions
+  while [ $# -gt 0 ]; do case "$1" in --crew) cfg="$2"; shift ;; --apply) apply=1 ;; --runner) runner="$2"; shift ;; *) die "unknown option: $1" ;; esac; shift; done
+  [ -f "$cfg" ] || die "no crew.json at $cfg (use --crew)"
+  command -v python3 >/dev/null || die "python3 is required"
+  say "Schedules (UTC) generated from $cfg:"
+  python3 "$HERE/lib/schedules.py" table --crew "$cfg"
+  if [ "$runner" = routines ]; then
+    say "NEXT   routines runner: create one routine per role above in Claude's web UI with that cron and the stub prompt from docs/recipes/routines.md, attach the plan and code repos, then put each trigger id and token secret name in crew.json roles.<role>."
+    return 0
+  fi
+  [ "$apply" = 1 ] || { say "NEXT   edit 'schedules' in crew.json (avoid_hours_utc, roles.<role>.cron or enabled=false), then: crew schedules --crew $cfg --apply"; return 0; }
+  local plan hrepo href d; plan=$(jq -r '.repos.plan' "$cfg"); hrepo=$(jq -r '.repos.harness' "$cfg"); href="${HREF:-main}"
+  [ "$(gh pr list -R "$plan" --head crew/schedules --state open --json number --jq length 2>/dev/null || echo 0)" -gt 0 ] 2>/dev/null && die "a crew/schedules PR is already open in $plan"
+  d=$(mktemp -d)/plan
+  gh repo clone "$plan" "$d" -- -q >/dev/null 2>&1 || die "cannot clone $plan"
+  git -C "$d" checkout -q -b crew/schedules || die "cannot branch"
+  mkdir -p "$d/.github/workflows"
+  rm -f "$d"/.github/workflows/crew-schedule-*.yml
+  python3 "$HERE/lib/schedules.py" render --crew "$cfg" --out "$d/.github/workflows" --harness-repo "$hrepo" --harness-ref "$href" >/dev/null || die "render failed"
+  # crew.json is the source of truth: keep the plan repo's copy in sync
+  [ -f "$d/crew.json" ] && cp "$cfg" "$d/crew.json"
+  git -C "$d" add -A
+  if git -C "$d" diff --cached --quiet; then say "no schedule changes: nothing to do"; return 0; fi
+  git -C "$d" commit -q -m "Regenerate the crew schedules from crew.json" && git -C "$d" push -q -u origin crew/schedules &&
+    gh pr create -R "$plan" --head crew/schedules --title "Regenerate the crew schedules" --body "Generated by crew schedules --apply from crew.json. Review the cron lines, then merge." >/dev/null && say "DO     opened a PR in $plan that regenerates the schedules"
 }
 
 # crew activate: merge the install PRs, enable the schedules, run doctor
@@ -221,7 +260,9 @@ cmd_activate() {
   # the schedules were disabled by `crew init` runs that predate secrets; enable them once the Claude token exists
   local names; names=$(gh secret list -R "$plan" --json name --jq '.[].name' 2>/dev/null)
   if grep -qx CLAUDE_CODE_OAUTH_TOKEN <<<"$names"; then
-    for w in crew-schedule-worker crew-schedule-lead crew-schedule-pm; do
+    local role
+    for role in $(python3 "$HERE/lib/schedules.py" roles --crew "$cfg"); do
+      w="crew-schedule-$role"
       gh api "repos/$plan/actions/workflows/$w.yml" >/dev/null 2>&1 && act "enable $w in $plan" gh workflow enable "$w.yml" -R "$plan"
     done
   else say "WARN   no Claude token in $plan: schedules left as they are"; fi
@@ -233,8 +274,9 @@ case "${1:-}" in
   doctor) shift; cmd_doctor "$@" ;;
   apps) shift; cmd_apps "$@" ;;
   activate) shift; cmd_activate "$@" ;;
+  schedules) shift; cmd_schedules "$@" ;;
   _store-repo-token) shift; cmd_store_repo_token "$@" ;;
   _install-callers) shift; cmd_install_callers "$@" ;;
-  ""|-h|--help|help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command: $1 (try: crew help)" ;;
 esac

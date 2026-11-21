@@ -44,7 +44,7 @@ grep -q "acme/plan that installs the crew workflow callers for the plan repo" <<
 # which templates each kind installs (dry-run of the helper)
 c=$(bash "$CREW" _install-callers acme/app h/r main actions /tmp 1 acme/plan code); p=$(bash "$CREW" _install-callers acme/plan h/r main actions /tmp 1 acme/plan plan)
 [ "$c" = "         would add: crew-review.yml crew-wake.yml " ] && ok "code repo callers: wake and review only" || no "code repo callers: $c"
-grep -q "crew-schedule-worker.yml" <<<"$p" && ! grep -q "crew-review.yml" <<<"$p" && ok "plan repo callers: schedules, no review" || no "plan repo callers: $p"
+grep -q "crew-schedule-<role>.yml" <<<"$p" && ! grep -q "crew-review.yml" <<<"$p" && ok "plan repo callers: generated schedules, no review" || no "plan repo callers: $p"
 p=$(bash "$CREW" _install-callers acme/plan h/r main routines /tmp 1 acme/plan plan); ! grep -q "crew-schedule" <<<"$p" && ok "routines runner installs no schedule callers" || no "routines runner installs no schedule callers"
 # fully scripted flow
 out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app 2>&1)
@@ -62,7 +62,7 @@ if grep -q "$FAKETOK" <<<"$out" || grep -q "$FAKETOK" "$LOG"; then no "the gh to
 out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --identity roles 2>&1); grep -q "one GitHub App per role" <<<"$out" && ok "identity=roles creates one App per role" || no "identity=roles creates one App per role"
 bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --identity solo >/dev/null 2>&1 && no "old identity name rejected" || ok "old identity name rejected"
 out=$(bash "$CREW" apps create --crew "$P" --single --plan 2>&1); [ "$(grep -c '^PLAN   create GitHub App' <<<"$out")" = 1 ] && grep -q "example-crew" <<<"$out" && ok "apps create --single makes exactly one App" || no "apps create --single makes exactly one App: $out"
-out=$(bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "enable crew-schedule-worker in acme/plan" <<<"$out" && ok "activate enables the schedules when the Claude token exists" || no "activate enables the schedules: $out"
+out=$(bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "enable crew-schedule-worker-a in acme/plan" <<<"$out" && grep -q "enable crew-schedule-lead in acme/plan" <<<"$out" && ok "activate enables the schedules when the Claude token exists" || no "activate enables the schedules: $out"
 out=$(STUB_NO_SECRETS=1 bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "no Claude token in acme/plan" <<<"$out" && ok "activate leaves schedules off without a Claude token" || no "activate leaves schedules off without a Claude token"
 bash "$CREW" activate --crew "$S/none.json" --yes >/dev/null 2>&1 && no "activate needs a crew.json" || ok "activate needs a crew.json"
 # the real (non-dry) apps path, with python3 stubbed: empty option arrays must not break bash 3.2 under set -u
@@ -82,4 +82,14 @@ grep -q -- "--org" "$S/py.args" && ok "apps create detects an organization owner
 jq '.repos.plan="someone/plan" | .repos.code=["someone/app"]' "$P" > "$S/u.json"; : > "$S/py.args"; PATH="$S/pybin:$PATH" bash "$CREW" apps create --crew "$S/u.json" --single >/dev/null 2>&1
 grep -q -- "--org" "$S/py.args" && no "a personal owner does not get --org" || ok "a personal owner does not get --org"
 bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --force-claude >/dev/null 2>&1 && ok "--force-claude is accepted" || no "--force-claude is accepted"
+# schedules and workers are part of setup
+out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --workers 3 2>&1)
+grep -q "3 workers + lead, pm, research" <<<"$out" && ok "init --plan: the worker count shapes crew.json" || no "init --plan: the worker count shapes crew.json"
+bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --workers 0 >/dev/null 2>&1 && no "--workers must be 1 to 9" || ok "--workers must be 1 to 9"
+out=$(bash "$CREW" schedules --crew "$P" 2>&1)
+grep -q "^lead " <<<"$out" && grep -q "^worker-a " <<<"$out" && grep -q "^research .*on demand" <<<"$out" && ok "crew schedules lists every role with its cron" || no "crew schedules lists every role: $out"
+grep -q "crew schedules --crew .* --apply" <<<"$out" && ok "crew schedules without --apply changes nothing and says how to apply" || no "crew schedules without --apply"
+out=$(bash "$CREW" schedules --crew "$P" --runner routines 2>&1); grep -q "routines runner: create one routine per role" <<<"$out" && ok "crew schedules --runner routines explains the routine settings" || no "crew schedules --runner routines"
+bash "$CREW" schedules --crew "$S/none.json" >/dev/null 2>&1 && no "crew schedules needs a crew.json" || ok "crew schedules needs a crew.json"
+out=$(bash "$CREW" doctor "$P" 2>&1); grep -q "schedule caller for worker-a installed" <<<"$out" && ok "doctor checks each role's schedule caller" || no "doctor checks each role's schedule caller"
 rm -rf "$S"; echo "crew-cli.test: $pass passed, $failn failed"; [ "$failn" = 0 ]
