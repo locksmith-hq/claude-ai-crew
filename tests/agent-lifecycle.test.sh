@@ -48,6 +48,27 @@ E bash "$S/run-meta.sh" eval PASS; (cd "$W/plan" && E bash "$S/run-meta.sh" push
 E bash "$S/run-meta.sh" eval MAYBE >/dev/null 2>&1; [ $? = 2 ] && ok "eval rejects other verdicts" || no "eval rejects other verdicts"
 git -C "$W/plan" checkout -q main; rm -f "$W/meta.env"
 
+# ---- key_env / id_env aliases and the App id lookup
+jq '.roles.lead.key_env="OLDKEY_LEAD" | .roles.lead.id_env="OLDID_LEAD"' "$W/plan/crew.json" > "$W/crew4.json"
+out=$(E env CREW_CONFIG="$W/crew4.json" AGENT_API_URL=http://127.0.0.1:9 OLDKEY_LEAD=xx bash "$S/agent-identity.sh" setup lead 2>&1); rc=$?
+grep -q "OLDID_LEAD is not set" <<<"$out" && ok "crew.json key_env/id_env name the variables" || no "crew.json key_env/id_env name the variables: rc=$rc $out"
+cat > "$W/appsrv.py" <<'PYS'
+import json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_GET(self):
+        open(sys.argv[1], "a").write(self.path + "\n")
+        body = json.dumps({"id": 4242}).encode() if self.path.startswith("/apps/") else b"{}"
+        self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body)
+srv = HTTPServer(("127.0.0.1", 0), H); print(srv.server_port, flush=True); srv.serve_forever()
+PYS
+python3 "$W/appsrv.py" "$W/hits.log" > "$W/appsrv.port" & APPSRV=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$W/appsrv.port" ] && break; sleep 0.3; done
+REALBIN="$(dirname "$(command -v curl)"):$(dirname "$(command -v jq)"):/usr/bin:/bin"   # the test bin stubs curl; this check needs the real one
+out=$(E env PATH="$REALBIN" AGENT_API_URL="http://127.0.0.1:$(cat "$W/appsrv.port")" AGENT_APP_KEY_LEAD="$(printf "not a key" | openssl base64 -A)" bash "$S/agent-identity.sh" setup lead 2>&1)
+grep -q "^/apps/example-lead" "$W/hits.log" && ok "a missing App id is looked up by slug (GET /apps/<slug>)" || no "App id lookup by slug: $(cat "$W/hits.log" 2>/dev/null) $out"
+kill "$APPSRV" 2>/dev/null; wait "$APPSRV" 2>/dev/null
 # ---- bg.sh
 E bash "$S/bg.sh" start ok 20 -- sh -c 'echo hello; exit 0' >/dev/null
 out=$(E bash "$S/bg.sh" wait ok 10); rc=$?

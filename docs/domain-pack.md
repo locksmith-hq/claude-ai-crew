@@ -175,6 +175,7 @@ your plan repo, plus the rules and plan files it points at. The harness never ha
 | `preflight` | Optional list of tool checks run at the start of every run: `{name, cmd, fix, level, hint, wait}`. A failing `cmd` runs `fix` in the code checkout and polls `cmd` for `wait` seconds (default 20). `level` is `warn` or `fail` (default `fail`). `$SUDO` is empty as root, otherwise `sudo -n` |
 | `mentions` | Optional map of wake handles to roles; defaults to `@<project>-<role>` |
 | `schedules` | Optional: `avoid_hours_utc` (weekday UTC hours no worker runs, default 15 to 20) and `roles.<role>` overrides (`cron` list, `enabled: false`). Schedules are generated from the roles and these settings by `crew schedules` |
+| `roles.<role>.key_env` / `id_env` | Optional: the names of the environment variables holding that role's App key and App id, when your environment already uses other names than `AGENT_APP_KEY_<ROLE>` / `AGENT_APP_ID_<ROLE>`. If the id variable is not set, the id is looked up from the public `GET /apps/<slug>` |
 | `channels` | Who may open which help channel and who is woken (same shape the routing script reads) |
 | `default_worker` | The worker woken when nothing names one (for example red main CI) |
 | `trust_root` | Paths that agents may never change on their own branches |
