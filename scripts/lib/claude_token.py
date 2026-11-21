@@ -8,78 +8,117 @@ passed as an argument.
 
 Usage: claude_token.py --repos a/b,c/d [--secret NAME]
 """
-import argparse, fcntl, os, pty, re, select, shlex, struct, subprocess, sys, termios
+import argparse, fcntl, os, pty, re, select, shlex, struct, subprocess, sys, termios, webbrowser
 
-TOKEN = re.compile(rb"sk-ant-[A-Za-z0-9_-]{20,}")
+TOKEN = re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}")
+LOGIN_URL = re.compile(r"https://claude\.(?:com|ai)/[^\s\x1b\x07]*oauth/authorize\?[^\s\x1b\x07]+")
 
-def mask_lines(state, chunk):
-    """Line-based masking that survives a token being wrapped across lines by the terminal.
-    state = {"partial": bytes, "hiding": bool}. Returns bytes that are safe to show.
-    A line containing a token (or its prefix) is replaced, and the lines that follow up to the next blank line
-    are hidden too, because the terminal may have wrapped the rest of the token onto them."""
-    out = []
-    data = state["partial"] + chunk
-    *lines, state["partial"] = data.split(b"\n")
-    for line in lines:
-        plain = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]|\r", b"", line)
-        if state["hiding"]:
-            if plain.strip() == b"": state["hiding"] = False; out.append(line + b"\n")
-            continue
-        if TOKEN.search(plain) or b"sk-ant-" in plain:
-            out.append(b"<token hidden>\n"); state["hiding"] = True
-        else:
-            out.append(line + b"\n")
-    return b"".join(out)
+class Screen:
+    """A tiny virtual terminal. `claude setup-token` draws a full-screen UI and repaints it with cursor moves and
+    erases, so joining the raw output scrambles text (the login URL ended up inside the token). Applying the moves the
+    way a terminal does gives the text as it appears on screen. Only the controls that UI uses are handled."""
+    def __init__(self):
+        self.rows = {}; self.r = 0; self.c = 0; self.osc_urls = []; self._buf = ""; self.tokens = []
 
-def flush_partial(state):
-    """Show an unfinished line (a prompt) only if it cannot contain a token."""
-    p = state["partial"]
-    if p and not state["hiding"] and b"sk-ant" not in p and not TOKEN.search(p):
-        state["partial"] = b""; return p
-    return b""
+    def _put(self, ch):
+        line = self.rows.setdefault(self.r, [])
+        while len(line) <= self.c: line.append(" ")
+        line[self.c] = ch; self.c += 1
+
+    def _erase_line(self, mode):
+        line = self.rows.setdefault(self.r, [])
+        if mode == 2: self.rows[self.r] = []
+        elif mode == 1:
+            for i in range(min(self.c + 1, len(line))): line[i] = " "
+        else: del line[self.c:]
+
+    def feed(self, data):
+        text = self._buf + data.decode("utf-8", "replace"); self._buf = ""; i = 0; n = len(text)
+        while i < n:
+            ch = text[i]
+            if ch == "\x1b":
+                if i + 1 >= n: self._buf = text[i:]; break
+                nxt = text[i + 1]
+                if nxt == "[":
+                    m = re.compile(r"[0-9;?<>=]*[ -/]*[@-~]").match(text, i + 2)
+                    if not m: self._buf = text[i:]; break
+                    self._csi(m.group(0)); i = m.end(); continue
+                if nxt == "]":
+                    m = re.compile(r"(.*?)(?:\x07|\x1b\\)", re.S).match(text, i + 2)
+                    if not m: self._buf = text[i:]; break
+                    if m.group(1).startswith("8;"):
+                        url = m.group(1).split(";", 2)[-1]
+                        if url: self.osc_urls.append(url)
+                    i = m.end(); continue
+                i += 2 if nxt not in "()" else 3; continue
+            if ch == "\r": self.c = 0
+            elif ch == "\n": self.r += 1; self.c = 0
+            elif ch == "\b": self.c = max(0, self.c - 1)
+            elif ch >= " ": self._put(ch)
+            i += 1
+        for t in TOKEN.findall("\n".join(self.lines())): self.tokens.append(t)
+
+    def _csi(self, seq):
+        final = seq[-1]; params = seq[:-1].lstrip("?<>=")
+        nums = [int(x) if x.isdigit() else 0 for x in re.split(r"[;:]", params)] if params else []
+        a = nums[0] if nums and nums[0] else 1
+        if final == "A": self.r = max(0, self.r - a)
+        elif final == "B": self.r += a
+        elif final == "C": self.c += a
+        elif final == "D": self.c = max(0, self.c - a)
+        elif final == "G": self.c = max(0, a - 1)
+        elif final in "Hf": self.r = max(0, (nums[0] if nums and nums[0] else 1) - 1); self.c = max(0, (nums[1] if len(nums) > 1 and nums[1] else 1) - 1)
+        elif final == "K": self._erase_line(nums[0] if nums else 0)
+        elif final == "J":
+            mode = nums[0] if nums else 0
+            if mode == 2 or mode == 3: self.rows = {}
+            elif mode == 0:
+                self._erase_line(0)
+                for k in [k for k in self.rows if k > self.r]: del self.rows[k]
+
+    def lines(self):
+        return ["".join(self.rows[k]) for k in sorted(self.rows)]
+
+    def login_url(self):
+        for u in self.osc_urls:
+            if LOGIN_URL.match(u): return u
+        m = LOGIN_URL.search("\n".join(self.lines()))
+        return m.group(0) if m else None
+
+    def best_token(self):
+        return max(self.tokens, key=len).encode() if self.tokens else None
 
 def run_pty(argv):
-    """Run argv in a pty, echo masked output, return (exit code, token bytes or None)."""
+    """Run argv in a wide pty, track its screen, open the login URL, pass the user's code through, and return
+    (exit code, token bytes or None). The child's output is never echoed."""
     pid, fd = pty.fork()
     if pid == 0:
         os.execvp(argv[0], argv)
-    # A very wide terminal: when the tool wraps a long line, its redraw mixes other text into the middle of a token
-    # (seen with `claude setup-token`: the login URL ended up inside the token and the capture stopped at the first '&').
     try: fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 1000, 0, 0))
     except OSError: pass
-    buf = b""; token = None; state = {"partial": b"", "hiding": False}
-    stdin_open = sys.stdin.isatty()
+    scr = Screen(); announced = False; stdin_open = sys.stdin.isatty()
     while True:
         rlist = [fd] + ([sys.stdin] if stdin_open else [])
         try: r, _, _ = select.select(rlist, [], [], 0.5)
         except (ValueError, OSError): r = [fd]
-        if not r:
-            sys.stdout.buffer.write(flush_partial(state)); sys.stdout.buffer.flush()
         if fd in r:
-            try: chunk = os.read(fd, 4096)
+            try: chunk = os.read(fd, 8192)
             except OSError: chunk = b""
             if not chunk: break
-            buf += chunk
-            sys.stdout.buffer.write(mask_lines(state, chunk)); sys.stdout.buffer.flush()
+            scr.feed(chunk)
+            url = scr.login_url()
+            if url and not announced:
+                announced = True
+                print("\ncrew: open this URL and approve the login (opening your browser now):\n  " + url, flush=True)
+                try: webbrowser.open(url)
+                except Exception: pass
+                print("crew: if the page shows a code, paste it here and press Enter. Otherwise just wait.", flush=True)
         if stdin_open and sys.stdin in r:
-            data = os.read(sys.stdin.fileno(), 1024)
-            if data: os.write(fd, data)
+            line = sys.stdin.readline()
+            if line == "": stdin_open = False
+            else: os.write(fd, line.rstrip("\r\n").encode() + b"\r")
     _, status = os.waitpid(pid, 0)
-    code = os.waitstatus_to_exitcode(status)
-    sys.stdout.buffer.write(flush_partial(state)); sys.stdout.buffer.flush()
-    # The token may have been wrapped across lines by the terminal: search the whole output without breaks or escapes.
-    flat = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]|[\r\n]", b"", buf)
-    m = TOKEN.search(flat)
-    if m: token = m.group(0)
-    return code, token
-
-def store_all(secret, value, repos):
-    failed = []
-    for repo in repos:
-        r = subprocess.run(["gh", "secret", "set", secret, "-R", repo], input=value, capture_output=True)
-        if r.returncode: failed.append(f"{repo}: {r.stderr.decode()[:100].strip()}")
-        else: print(f"STORED {secret} in {repo}", flush=True)
-    if failed: sys.exit("crew: failed to store the secret: " + "; ".join(failed))
+    return os.waitstatus_to_exitcode(status), scr.best_token()
 
 MIN_LEN = 90  # real tokens are about 100+ characters; a shorter match is a truncated capture
 
@@ -103,6 +142,14 @@ def already_set(secret, repos):
         if r.returncode or not ({secret, "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"} & have): return False
     return True
 
+def store_all(secret, value, repos):
+    failed = []
+    for repo in repos:
+        r = subprocess.run(["gh", "secret", "set", secret, "-R", repo], input=value, capture_output=True)
+        if r.returncode: failed.append(f"{repo}: {r.stderr.decode()[:100].strip()}")
+        else: print(f"STORED {secret} in {repo}", flush=True)
+    if failed: sys.exit("crew: failed to store the secret: " + "; ".join(failed))
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repos", required=True); ap.add_argument("--secret", default="CLAUDE_CODE_OAUTH_TOKEN")
@@ -123,9 +170,9 @@ def main():
     if a.no_web:
         sys.exit("crew: no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in the environment and --no-web was given.")
     argv = shlex.split(os.environ.get("CREW_CLAUDE_CMD", "claude setup-token"))
-    print("crew: running `%s`. Approve the login in your browser; the token is never shown." % " ".join(argv), flush=True)
+    print("crew: running `%s` (its screen is not shown; the token is never displayed)." % " ".join(argv), flush=True)
     code, token = run_pty(argv)
-    if token is not None and len(token) < MIN_LEN:
+    if token is not None and len(token) < MIN_LEN:  # token is bytes here
         sys.exit("crew: the captured token is too short (%d characters), so it was truncated; nothing was stored. "
                  "Run again, or export CLAUDE_CODE_OAUTH_TOKEN and re-run." % len(token))
     if code != 0 or not token:
