@@ -30,6 +30,7 @@ cat > "$S/bin/gh" <<GH
 #!/usr/bin/env bash
 echo "\$*" >> "$LOG"
 [ "\$1 \$2" = "secret set" ] && cat >> "$SEEN"
+[ "\$1 \$2" = "secret list" ] && [ -n "\${STUB_HAVE_SECRET:-}" ] && echo "\$STUB_HAVE_SECRET"
 exit 0
 GH
 chmod +x "$S/bin/gh"; export PATH="$S/bin:$PATH"
@@ -60,4 +61,9 @@ out=$(env -u CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY="sk-ant-api03-$(printf 'B
 [ "$rc" = 0 ] && grep -q "secret set ANTHROPIC_API_KEY -R acme/plan" "$LOG" && ok "an API key in the env is stored as ANTHROPIC_API_KEY" || no "an API key in the env is stored (rc=$rc): $out"
 out=$(env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY CREW_CLAUDE_CMD="$S/claude-ok" python3 "$TOK" --repos acme/plan --no-web 2>&1 </dev/null); rc=$?
 [ "$rc" != 0 ] && grep -q -- "--no-web" <<<"$out" && ok "--no-web fails instead of opening a login" || no "--no-web fails instead of opening a login"
+# a re-run: the secret already exists everywhere, so no login starts and nothing is stored again
+: > "$SEEN"; out=$(STUB_HAVE_SECRET=CLAUDE_CODE_OAUTH_TOKEN env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY CREW_CLAUDE_CMD="$S/claude-fail" python3 "$TOK" --repos acme/plan,acme/app 2>&1 </dev/null); rc=$?
+[ "$rc" = 0 ] && [ ! -s "$SEEN" ] && grep -q "already set" <<<"$out" && ok "an existing secret skips the login and stores nothing" || no "an existing secret skips the login (rc=$rc): $out"
+: > "$SEEN"; out=$(STUB_HAVE_SECRET=CLAUDE_CODE_OAUTH_TOKEN env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY CREW_CLAUDE_CMD="$S/claude-ok" python3 "$TOK" --repos acme/plan --force 2>&1 </dev/null)
+grep -q "$FAKE" "$SEEN" && ok "--force replaces an existing secret" || no "--force replaces an existing secret"
 rm -rf "$S"; echo "claude-token.test: $pass passed, $failn failed"; [ "$failn" = 0 ]
