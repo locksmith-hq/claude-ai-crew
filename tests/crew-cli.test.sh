@@ -34,4 +34,12 @@ grep -q "PLAN   create GitHub App example-lead" <<<"$out" && ok "apps create --p
 [ "$(grep -c '^PLAN   create GitHub App' <<<"$out")" = 4 ] && ok "apps create --plan covers every role" || no "apps create --plan covers every role"
 bash "$CREW" apps create --crew "$S/none.json" --plan >/dev/null 2>&1 && no "apps create needs a crew.json" || ok "apps create needs a crew.json"
 bash "$CREW" apps wat --crew "$P" >/dev/null 2>&1 && no "apps rejects an unknown subcommand" || ok "apps rejects an unknown subcommand"
+out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app 2>&1)
+grep -q "acme/app that installs the crew workflow callers for a code repo" <<<"$out" && ok "init --plan: code repos get the code callers" || no "init --plan: code repos get the code callers"
+grep -q "acme/plan that installs the crew workflow callers for the plan repo" <<<"$out" && ok "init --plan: plan repo gets the plan callers" || no "init --plan: plan repo gets the plan callers"
+# which templates each kind installs (dry-run of the helper)
+c=$(bash "$CREW" _install-callers acme/app h/r main actions /tmp 1 acme/plan code); p=$(bash "$CREW" _install-callers acme/plan h/r main actions /tmp 1 acme/plan plan)
+[ "$c" = "         would add: crew-review.yml crew-wake.yml " ] && ok "code repo callers: wake and review only" || no "code repo callers: $c"
+grep -q "crew-schedule-worker.yml" <<<"$p" && ! grep -q "crew-review.yml" <<<"$p" && ok "plan repo callers: schedules, no review" || no "plan repo callers: $p"
+p=$(bash "$CREW" _install-callers acme/plan h/r main routines /tmp 1 acme/plan plan); ! grep -q "crew-schedule" <<<"$p" && ok "routines runner installs no schedule callers" || no "routines runner installs no schedule callers"
 rm -rf "$S"; echo "crew-cli.test: $pass passed, $failn failed"; [ "$failn" = 0 ]
