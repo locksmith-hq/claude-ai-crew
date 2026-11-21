@@ -103,8 +103,12 @@ jobs:
       # claude-code-action configures git in the workspace root, but the harness, plan and code repos are checked out
       # into subfolders, so the root is not a repository ("fatal: not in a git directory"). Make it one; the agent
       # works inside the subfolders.
+      # It also replaces the checkout credentials on `origin` and expects a HEAD, so give the root both.
       - name: Make the workspace root a git repository
-        run: git init -q "$GITHUB_WORKSPACE"
+        run: |
+          git init -q "$GITHUB_WORKSPACE"
+          git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$GITHUB_WORKSPACE" -c user.name=crew -c user.email=crew@users.noreply.github.com commit -q --allow-empty -m "workspace root"
       - uses: anthropics/claude-code-action@v1
         env:
           CREW_HARNESS_DIR: ${{ github.workspace }}/harness
