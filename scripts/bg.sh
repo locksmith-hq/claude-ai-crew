@@ -24,7 +24,10 @@ case "$cmd" in
     fi
     # No stdin: a command that reads it (a stray `cat`) hung a worker run for 30 min.
     ( s=$(date +%s); timeout -s KILL "$t" "$@" </dev/null >"$log" 2>&1; c=$?
-      echo "$name $(( $(date +%s) - s )) $c" >>"$dir/bg-times"; echo $c >"$rc" ) </dev/null >/dev/null 2>&1 &
+      e=$(( $(date +%s) - s ))
+      # GNU timeout exits 124 when it kills the job; BSD/macOS timeout exits 137. Report one code (137) for both.
+      [ "$c" = 124 ] && [ "$e" -ge "$t" ] && c=137
+      echo "$name $e $c" >>"$dir/bg-times"; echo $c >"$rc" ) </dev/null >/dev/null 2>&1 &
     # The subshell above must not hold our stdout: `bg.sh start ... | tail` blocked until the job ended.
     echo "bg: started $name (timeout ${t}s), log $log"
     ;;
