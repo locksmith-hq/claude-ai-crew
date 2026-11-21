@@ -21,7 +21,9 @@ your plan repo, plus the rules and plan files it points at. The harness never ha
   "commands": {
     "quick": "make quick",
     "ci": "make ci",
-    "setup": "make setup"
+    "setup": "make setup",
+    "free_disk": "rm -rf build/cache",
+    "free_disk_skip_if_running": "make"
   },
   "paths": {
     "decisions": "decisions.md",
@@ -54,6 +56,26 @@ your plan repo, plus the rules and plan files it points at. The harness never ha
   "research": {
     "dependency_watchlist": []
   },
+  "review": {
+    "checklist": [
+      "No secret or credential is added to the repo or logged"
+    ]
+  },
+  "preflight": [
+    {
+      "name": "node",
+      "cmd": "node --version",
+      "level": "fail",
+      "hint": "node is missing"
+    },
+    {
+      "name": "deps",
+      "cmd": "test -d node_modules",
+      "level": "warn",
+      "hint": "install dependencies in the background before tests"
+    }
+  ],
+  "stack_checks": [],
   "roles": {
     "lead": {
       "app": "example-lead",
@@ -147,6 +169,11 @@ your plan repo, plus the rules and plan files it points at. The harness never ha
 | `merge.required_checks` | Names of the CI checks that must pass before auto-merge |
 | `merge.protected_paths` | Paths that need the owner's approval of the head commit (the trust root and security-critical code) |
 | `research.dependency_watchlist` | Optional list of dependencies or tools the research role watches |
+| `commands.free_disk` / `commands.free_disk_skip_if_running` | Command that frees build caches when disk runs low (`BG_MIN_FREE_GB`, default 8), and a process name that blocks it while running |
+| `stack_checks` | Optional list of `{name, cmd}` checks of your local stack; `harness-check.sh` prints PASS/FAIL for each |
+| `review.checklist` | Optional list of extra rules the independent reviewer must check on every PR (project-specific security or style rules) |
+| `preflight` | Optional list of tool checks run at the start of every run: `{name, cmd, fix, level, hint, wait}`. A failing `cmd` runs `fix` in the code checkout and polls `cmd` for `wait` seconds (default 20). `level` is `warn` or `fail` (default `fail`). `$SUDO` is empty as root, otherwise `sudo -n` |
+| `mentions` | Optional map of wake handles to roles; defaults to `@<project>-<role>` |
 | `channels` | Who may open which help channel and who is woken (same shape the routing script reads) |
 | `default_worker` | The worker woken when nothing names one (for example red main CI) |
 | `trust_root` | Paths that agents may never change on their own branches |

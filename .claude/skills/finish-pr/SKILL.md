@@ -1,0 +1,31 @@
+---
+name: finish-pr
+description: Finish and unblock your own PRs through GitHub auto-merge (red main first, review FAIL, conflicts, threads). Workers act only on PRs they opened; the lead may also act on a worker's PR. Worker step 0.
+---
+
+# Finish your PRs (GitHub merges; see `prompts/merge-policy.md`)
+
+PRs live in `$CODE_REPO`. Pass `-R "$CODE_REPO"` to `gh pr` commands. Coordination issues and labels live in `$PLAN_REPO`.
+
+## Whose PR
+A PR belongs to the App that opened it; a `claude/change-*` PR the owner account opened belongs to that change's lock holder. Act only on your own: `gh pr list -R "$CODE_REPO" --author "$(crew_role_login "$AGENT_PERSONA")"` (`@me` does not work with an App token). The lead may also fix or auto-merge a worker's PR. A worker never pushes to, labels or auto-merges another worker's PR or any PR the lead opened. Never approve, use `--admin` or call the merge API.
+
+## Main first
+If the latest `ci` run on main failed, fix it first: branch `claude/fix-main-<date>`, the `evaluate-escalate` skill, then auto-merge it.
+
+## Finish a PR
+When the last task is ticked and verified, or a planning, archive or lead PR is done:
+1. If it ticks a change's last task, archive the change in this PR first (`archive-change` steps 2-4).
+2. Comment a summary: what changed (3 lines), how it was verified, the risks.
+3. Run `gh pr merge <n> --auto --merge -R "$CODE_REPO"`. This starts the independent review; GitHub merges once every required check and the `merge-ready` status pass.
+
+Never while a `needs-rescue` issue is open for that change.
+
+## Unblock your PRs
+Oldest first, at most 4 per run; one failure does not stop the others. Lock the change first (`bash "$CREW_HARNESS_DIR/scripts/run-lock.sh" acquire <you> <id>`; busy: move on) and release it after.
+- **`merge-ready` failure, review FAIL (`review-failed` label):** fix the findings with `evaluate-escalate`, resolve their threads, push once. The push reruns the review.
+- **Unchecked tasks:** finish them or turn auto-merge off (`gh pr merge <n> --disable-auto`).
+- **Conflicts:** merge `origin/main` into the branch. Lockfiles: take main's, then regenerate with the package manager. Workspace members, command-runner recipes, roadmap rows: keep both. Code: keep both behaviours; if they truly conflict, the later PR adapts. Run `<quick-check>`, push once.
+- **Red CI:** job logs may be blocked by the proxy; read `gh api repos/$CODE_REPO/check-runs/<job id>/annotations`, fix, push once.
+- **`needs owner approval`** (an annotation of the failed review): never re-arm auto-merge; open a `Decision:` issue labelled `needs-rescue` in `$PLAN_REPO`.
+- **`merge-ready` stuck on pending** (review timed out): `gh pr merge <n> --disable-auto`, then `--auto --merge` again. Any other `merge-ready` error: read the annotations first.
