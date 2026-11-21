@@ -11,7 +11,7 @@ case "\$1 \$2" in
   "auth status") exit 0 ;;
   "secret list") [ -n "\${STUB_NO_SECRETS:-}" ] || printf '[{"name":"CLAUDE_CODE_OAUTH_TOKEN"},{"name":"CREW_REPO_TOKEN"}]' | jq -r '.[].name'; exit 0 ;;
 esac
-case "\$1" in api) case "\$2" in repos/missing/*|repos/missing) exit 1 ;; *) echo '{}' ;; esac ;; esac
+case "\$1" in api) case "\$2" in repos/missing/*|repos/missing) exit 1 ;; users/acme) echo Organization ;; users/someone) echo User ;; *) echo '{}' ;; esac ;; esac
 exit 0
 GH
 chmod +x "$S/bin/gh"; export PATH="$S/bin:$PATH"
@@ -54,4 +54,20 @@ out=$(bash "$CREW" apps create --crew "$P" --single --plan 2>&1); [ "$(grep -c '
 out=$(bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "enable crew-schedule-worker in acme/plan" <<<"$out" && ok "activate enables the schedules when the Claude token exists" || no "activate enables the schedules: $out"
 out=$(STUB_NO_SECRETS=1 bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "no Claude token in acme/plan" <<<"$out" && ok "activate leaves schedules off without a Claude token" || no "activate leaves schedules off without a Claude token"
 bash "$CREW" activate --crew "$S/none.json" --yes >/dev/null 2>&1 && no "activate needs a crew.json" || ok "activate needs a crew.json"
+# the real (non-dry) apps path, with python3 stubbed: empty option arrays must not break bash 3.2 under set -u
+mkdir -p "$S/pybin"; cat > "$S/pybin/python3" <<PYS
+#!/usr/bin/env bash
+echo "\$*" >> "$S/py.args"
+exit 0
+PYS
+chmod +x "$S/pybin/python3"
+out=$(PATH="$S/pybin:$PATH" bash "$CREW" apps create --crew "$P" --single 2>&1); rc=$?
+[ "$rc" = 0 ] && ! grep -q "unbound variable" <<<"$out" && grep -q -- "--single" "$S/py.args" && ok "apps create --single runs (no unbound-variable error)" || no "apps create --single runs: rc=$rc $out"
+: > "$S/py.args"; out=$(PATH="$S/pybin:$PATH" bash "$CREW" apps create --crew "$P" --org --role lead 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -q -- "--org" "$S/py.args" && ! grep -q -- "--single" "$S/py.args" && ok "apps create --org --role passes only --org" || no "apps create --org --role: rc=$rc $out"
+# an organization-owned plan repo gets an organization-owned App automatically
+: > "$S/py.args"; PATH="$S/pybin:$PATH" bash "$CREW" apps create --crew "$P" --single >/dev/null 2>&1
+grep -q -- "--org" "$S/py.args" && ok "apps create detects an organization owner and passes --org" || no "apps create detects an organization owner: $(cat "$S/py.args")"
+jq '.repos.plan="someone/plan" | .repos.code=["someone/app"]' "$P" > "$S/u.json"; : > "$S/py.args"; PATH="$S/pybin:$PATH" bash "$CREW" apps create --crew "$S/u.json" --single >/dev/null 2>&1
+grep -q -- "--org" "$S/py.args" && no "a personal owner does not get --org" || ok "a personal owner does not get --org"
 rm -rf "$S"; echo "crew-cli.test: $pass passed, $failn failed"; [ "$failn" = 0 ]

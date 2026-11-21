@@ -18,6 +18,13 @@ cat > "$S/claude-none" <<'EOS'
 #!/usr/bin/env bash
 echo "done, but no token printed"
 EOS
+# a token wrapped across lines by the terminal, with the URL junk the real tool printed after it
+cat > "$S/claude-wrap" <<EOS
+#!/usr/bin/env bash
+echo "Your OAuth token (valid for 1 year):"; echo ""
+echo "\${FAKE:0:60}"; echo "\${FAKE:60}"; echo ""; echo "Store this token securely."
+EOS
+sed -i.bak "s|\\\${FAKE:0:60}|${FAKE:0:30}|; s|\\\${FAKE:60}|${FAKE:30}|" "$S/claude-wrap"; rm -f "$S/claude-wrap.bak"
 chmod +x "$S"/claude-*
 cat > "$S/bin/gh" <<GH
 #!/usr/bin/env bash
@@ -37,4 +44,10 @@ grep -q "token hidden" <<<"$out" && grep -q "Welcome to the fake Claude" <<<"$ou
 grep -q "gh secret set" <<<"$out" && ok "a failure explains the manual fallback" || no "a failure explains the manual fallback"
 out=$(CREW_CLAUDE_CMD="$S/claude-none" python3 "$TOK" --repos acme/plan 2>&1 </dev/null); rc=$?
 [ "$rc" != 0 ] && [ ! -s "$SEEN" ] && ok "no token in the output stores nothing" || no "no token in the output stores nothing"
+# wrapped token: no 10-character piece of it may be shown, and it is still stored
+: > "$SEEN"; out=$(CREW_CLAUDE_CMD="$S/claude-wrap" python3 "$TOK" --repos acme/plan 2>&1 </dev/null); rc=$?
+leak=0; for i in 0 10 20 30; do piece="${FAKE:$((i+15)):10}"; grep -q "$piece" <<<"$out" && leak=1; done
+[ "$leak" = 0 ] && ok "a wrapped token is not shown, even in pieces" || no "a wrapped token is not shown, even in pieces"
+[ "$rc" = 0 ] && grep -q "$FAKE" "$SEEN" && ok "a wrapped token is still captured and stored" || no "a wrapped token is still captured and stored (rc=$rc)"
+grep -q "Store this token securely" <<<"$out" && ok "output after the token is shown again" || no "output after the token is shown again"
 rm -rf "$S"; echo "claude-token.test: $pass passed, $failn failed"; [ "$failn" = 0 ]

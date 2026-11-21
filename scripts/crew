@@ -120,12 +120,15 @@ cmd_apps() {
     create)
       command -v python3 >/dev/null || die "python3 is required"
       local singleflag=(); [ "$single" = 1 ] && singleflag=(--single)
-      local orgflag=(); [ "$org" = 1 ] && { owner=$(jq -r '.repos.plan | split("/")[0]' "$cfg"); orgflag=(--org); }
+      # A private App can only be installed on its owner's account, so an org's repos need an App owned by the org.
+      local orgflag=() plan_owner kind; plan_owner=$(jq -r '.repos.plan | split("/")[0]' "$cfg")
+      kind=$(gh api "users/$plan_owner" --jq .type 2>/dev/null || echo "")
+      if [ "$org" = 1 ] || [ "$kind" = Organization ]; then owner="$plan_owner"; orgflag=(--org); org=1; fi
       say "crew apps: roles=${roles[*]} owner=$owner$([ "$org" = 1 ] && echo " (organization)") keys stored in: $repos"
       for r in "${roles[@]}"; do
         if [ "$DRY" = 1 ]; then say "PLAN   create GitHub App ${project}-${r} (opens your browser; you click 'Create GitHub App'), then store the key and id for $r"; continue; fi
         say "== role $r: a browser tab opens; click 'Create GitHub App' on github.com"
-        python3 "$HERE/lib/app_manifest.py" --project "$project" --role "$r" --owner "$owner" "${orgflag[@]}" "${singleflag[@]}" --repos "$repos" || { say "FAIL   app for $r"; FAILED=1; }
+        python3 "$HERE/lib/app_manifest.py" --project "$project" --role "$r" --owner "$owner" ${orgflag[@]+"${orgflag[@]}"} ${singleflag[@]+"${singleflag[@]}"} --repos "$repos" || { say "FAIL   app for $r"; FAILED=1; }
       done
       say "NEXT   install each new App on: $repos (the INSTALL links above), then run: crew doctor $cfg"
       [ "$FAILED" = 0 ] || exit 1 ;;
