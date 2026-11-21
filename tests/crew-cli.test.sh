@@ -13,6 +13,7 @@ case "\$1 \$2" in
   "auth status") echo "  - Token scopes: 'gist', 'read:org', 'repo'"; exit 0 ;;
   "auth token") echo "\$FAKETOK"; exit 0 ;;
   "secret set") cat >> "$S/secret.seen"; exit 0 ;;
+  "pr list") case "\$*" in *"--head crew/schedules"*) [ -n "\${STUB_SCHEDULE_PR:-}" ] && echo 7 ;; esac; exit 0 ;;
   "secret list") [ -n "\${STUB_NO_SECRETS:-}" ] || printf '[{"name":"CLAUDE_CODE_OAUTH_TOKEN"},{"name":"CREW_REPO_TOKEN"}]' | jq -r '.[].name'; exit 0 ;;
 esac
 case "\$1" in api) case "\$2" in repos/missing/*|repos/missing) exit 1 ;; users/acme) echo Organization ;; users/someone) echo User ;; *) echo '{}' ;; esac ;; esac
@@ -92,4 +93,5 @@ grep -q "crew schedules --crew .* --apply" <<<"$out" && ok "crew schedules witho
 out=$(bash "$CREW" schedules --crew "$P" --runner routines 2>&1); grep -q "routines runner: create one routine per role" <<<"$out" && ok "crew schedules --runner routines explains the routine settings" || no "crew schedules --runner routines"
 bash "$CREW" schedules --crew "$S/none.json" >/dev/null 2>&1 && no "crew schedules needs a crew.json" || ok "crew schedules needs a crew.json"
 out=$(bash "$CREW" doctor "$P" 2>&1); grep -q "schedule caller for worker-a installed" <<<"$out" && ok "doctor checks each role's schedule caller" || no "doctor checks each role's schedule caller"
+out=$(STUB_SCHEDULE_PR=1 bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "install PRs to merge: acme/plan#7" <<<"$out" && ok "activate also picks up a crew/schedules PR" || no "activate also picks up a crew/schedules PR: $out"
 rm -rf "$S"; echo "crew-cli.test: $pass passed, $failn failed"; [ "$failn" = 0 ]
