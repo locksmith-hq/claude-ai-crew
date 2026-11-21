@@ -1,0 +1,7 @@
+.DS_Store
+.env
+.env.*
+*.pem
+*.key
+# Your own private words to block, one regex per line (never commit this file).
+.leak-denylist.local
