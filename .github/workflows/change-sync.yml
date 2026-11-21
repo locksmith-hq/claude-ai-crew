@@ -1,0 +1,65 @@
+name: crew-change-sync-reusable
+
+# Reusable: keeps GitHub's issues in step with the plan: one issue per change (status page, status:* label,
+# board Status), a milestone per phase, a sub-issue per task, blocked-by links. Hygiene only: no build or test,
+# seconds of Actions time. Install templates/callers/crew-change-sync.yml in the PLAN repo (coordination issues
+# live there). Optional secret GH_AUTOMATION_TOKEN (a token that can edit the org Project and code PRs); without
+# it the sync writes labels only. CREW_REPO_TOKEN is needed when the code repo is private or in another repo.
+on:
+  workflow_call:
+    inputs:
+      harness_repo:
+        type: string
+        required: true
+      harness_ref:
+        type: string
+        required: true
+      plan_ref:
+        description: Plan repo ref to sync from (empty = default branch)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write  # managed issue-links block in change PRs
+
+jobs:
+  sync:
+    # Only issue events that change a change's state; ignore the bot's own status:* label edits.
+    # Lock comments (LOCK/UNLOCK on a change issue) update the "claimed" state.
+    if: >-
+      (github.event_name != 'issues' && github.event_name != 'issue_comment') ||
+      (github.event_name == 'issues' && (contains(fromJSON('["needs-owner","needs-rescue"]'), github.event.label.name) || github.event.action == 'closed' || github.event.action == 'reopened')) ||
+      (github.event_name == 'issue_comment' && contains(github.event.issue.labels.*.name, 'change') && (startsWith(github.event.comment.body, 'LOCK ') || startsWith(github.event.comment.body, 'UNLOCK ')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3  # runs take about a minute; fires on most repo events
+    concurrency:
+      group: crew-change-sync
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.harness_repo }}
+          ref: ${{ inputs.harness_ref }}
+          path: harness
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.plan_ref }}
+          token: ${{ secrets.CREW_REPO_TOKEN || github.token }}
+          path: plan
+          fetch-depth: 0
+      - env:
+          GH_TOKEN: ${{ secrets.CREW_REPO_TOKEN || github.token }}
+          # Automation PAT (owner-managed). Used only for the org Project; absent = labels only.
+          GH_AUTOMATION_TOKEN: ${{ secrets.GH_AUTOMATION_TOKEN }}
+          CREW_PLAN_DIR: ${{ github.workspace }}/plan
+          CREW_CODE_DIR: ${{ github.workspace }}/plan
+          CREW_CONFIG: ${{ github.workspace }}/plan/crew.json
+          EVENT: ${{ github.event_name }}
+        run: |
+          git -C plan fetch -q origin '+refs/heads/claude/change-*:refs/remotes/origin/claude/change-*' || true
+          bash harness/scripts/change-sync.sh
+          # Milestones, planned changes, task sub-issues and blocked-by links: not needed for lock
+          # comments or PR events, which only change a change's state.
+          case "$EVENT" in issue_comment|pull_request) ;; *) bash harness/scripts/roadmap-sync.sh; bash harness/scripts/dates-sync.sh ;; esac

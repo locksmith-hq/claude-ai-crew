@@ -4,8 +4,8 @@ A reusable harness for running a **team of scheduled Claude Code agents** on any
 It holds the roles, prompts, skills, routing rules, scripts and the hard-won recipes. Your project
 supplies a small **domain pack** (a config file plus your own rules and plan); the crew does the rest.
 
-> Status: foundation. Role prompts, the domain-pack schema and the recipes are here.
-> Skills, scripts and reusable workflows are being moved in over the next releases (see the roadmap below).
+> Status: early. Prompts, skills, scripts, reusable workflows, the `crew` setup CLI and the recipes are here and
+> tested offline. Nothing has been run end to end against GitHub yet; treat it as a release candidate and report what breaks.
 
 ## What you get
 
@@ -44,25 +44,37 @@ them. Change the harness once and every project that uses it benefits.
 
 ## Quick start
 
-1. Fork or clone this repo (or use it as a template).
-2. Create a **plan repo** (private is fine) and add a `crew.json` (see [docs/domain-pack.md](docs/domain-pack.md) and [examples/domain-pack](examples/domain-pack)).
-3. Create one GitHub App per role (see [docs/recipes/github-apps-and-identity.md](docs/recipes/github-apps-and-identity.md)).
-4. Create the routines (see [docs/recipes/routines.md](docs/recipes/routines.md)). Start with one worker and one lead.
-5. Read [docs/concepts.md](docs/concepts.md) for the trust model before giving agents any permissions.
+```bash
+# 1. See what setup would do (changes nothing)
+scripts/crew init --plan --project myapp --plan-repo me/myapp-plan --code-repo me/myapp
+# 2. Do it: creates the private plan repo and domain pack, the help labels, and a PR in each repo that
+#    installs the workflow callers. Secrets are printed as `gh secret set` steps and never handled by the tool.
+scripts/crew init --project myapp --plan-repo me/myapp-plan --code-repo me/myapp
+# 3. Set the secrets it lists, merge the install PRs, then check the wiring
+scripts/crew doctor path/to/myapp-plan/crew.json
+```
+
+Pick a runner: **Actions** (default, works on any plan, scheduled GitHub workflows) or **routines** (Claude
+cloud scheduled tasks). See [docs/runners.md](docs/runners.md). Read [docs/concepts.md](docs/concepts.md) for
+the trust model before giving agents any permissions.
 
 ## Docs
 
 - [docs/concepts.md](docs/concepts.md): roles, channels, the run lifecycle, the trust model.
 - [docs/domain-pack.md](docs/domain-pack.md): what your project provides and the `crew.json` schema.
 - [docs/recipes/](docs/recipes): what we learned running this in practice (cloud sessions, routines, apps, merge policy, costs).
+- [docs/runners.md](docs/runners.md): the two runners, the secrets each needs, and their limits.
 - [prompts/](prompts): generic role prompts and the shared rules.
+- [.claude/skills/](.claude/skills): the procedures agents load (run-start, run-log, finish-pr, evaluate-escalate, long-commands, debate, merge-review, archive-change).
+- [scripts/](scripts): the config-driven scripts (routing, locks, change status, run metadata, identity, `crew` CLI) and [tests/](tests).
+- [.github/workflows/](.github/workflows) and [templates/callers/](templates/callers): reusable workflows and the thin callers `crew init` installs.
 
 ## Roadmap
 
-1. Foundation (this release): README, concepts, domain-pack schema, role prompts, recipes.
-2. Skills and scripts with their tests, made config-driven.
-3. Reusable GitHub workflows (wake-agents, review, change sync).
-4. A `crew doctor` check that validates a domain pack and a project's wiring.
+1. Done: prompts, recipes, domain-pack schema, skills, scripts with offline tests, reusable workflows, `crew init` and `crew doctor`.
+2. Next: GitHub App creation through the manifest flow (`crew apps`) and a `/crew-setup` skill so Claude can run setup for you.
+3. Then: the routines runner as a first-class option, an end-to-end demo repo and a `crew upgrade` command.
+4. Open: the OpenSpec skills are not bundled (separate upstream project); the plan format is OpenSpec-style by default.
 
 ## Safety
 

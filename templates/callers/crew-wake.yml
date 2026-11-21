@@ -1,0 +1,31 @@
+# Installed by `crew init`. Install in the plan repo (issue and comment events) and in each code repo (CI and
+# review runs); the reusable workflow ignores events that do not belong to the repo it runs in.
+# Needs the roles' fire tokens as repo or org secrets, named as in crew.json roles.<role>.secret.
+# Wakes only; who wakes whom is decided by scripts/route.sh from crew.json.
+# Keep the workflow names in `workflows:` equal to your CI workflow's `name:` and to crew-review below.
+name: crew-wake
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [labeled, closed]
+  workflow_run:
+    workflows: [ci, crew-review]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  wake:
+    uses: <HARNESS_REPO>/.github/workflows/wake.yml@<HARNESS_REF>
+    with:
+      plan_repo: <PLAN_REPO>
+      harness_repo: <HARNESS_REPO>
+      harness_ref: <HARNESS_REF>
+      ci_workflow: ci
+      review_workflow: crew-review
+    secrets: inherit

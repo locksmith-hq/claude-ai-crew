@@ -1,0 +1,29 @@
+# Installed by `crew init` in the repo that should run the role (usually the plan repo).
+# Runs the worker role on a GitHub Actions runner on a schedule. Cron is UTC and GitHub may delay a run by minutes,
+# or drop it under load (vendor-doc: runs at the top of the hour are the most delayed).
+# Stagger: put each role on its own minute (worker :07 and :37, lead :23, pm :41) so runs do not start together,
+# and avoid :00 and :30. Avoid your plan's peak hours if rate limits bite: narrow the hour list below.
+# For more than one worker, copy this file per worker (worker-b, ...) with another minute offset and role.
+name: crew-schedule-worker
+
+on:
+  schedule:
+    - cron: "7,37 0-14,21-23 * * 1-5"   # twice an hour outside 15:00-21:00 UTC on weekdays
+    - cron: "7 */2 * * 0,6"             # every second hour at weekends
+  workflow_dispatch:
+    inputs:
+      prompt_extra:
+        description: Extra instruction for this run
+        default: ""
+
+jobs:
+  run:
+    uses: <HARNESS_REPO>/.github/workflows/role-run.yml@<HARNESS_REF>
+    with:
+      role: worker-a
+      kind: ${{ github.event_name == 'schedule' && 'scheduled' || 'manual' }}
+      prompt_extra: ${{ inputs.prompt_extra }}
+      plan_repo: <PLAN_REPO>
+      harness_repo: <HARNESS_REPO>
+      harness_ref: <HARNESS_REF>
+    secrets: inherit

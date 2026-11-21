@@ -1,0 +1,18 @@
+# Installed by `crew init` in the PLAN repo. Fallback only: re-writes a needs-owner issue so the owner is
+# @mentioned (and notified) when a human account, not an agent App, opened it.
+name: crew-owner-alert
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  alert:
+    uses: <HARNESS_REPO>/.github/workflows/owner-alert.yml@<HARNESS_REF>
+    with:
+      plan_repo: <PLAN_REPO>
+    secrets: inherit
