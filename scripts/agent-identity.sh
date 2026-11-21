@@ -34,8 +34,21 @@ why() { printf '%s' "$1" >"$state/why"; }
 app_jwt() {
   local role="$1" rv key pem app j
   rv=$(role_var "$role")
-  local kv="AGENT_APP_KEY_$rv" iv="AGENT_APP_ID_$rv"
-  app="${!iv:-}"; [ -n "$app" ] || { why "$iv is not set in this environment"; return 1; }
+  # crew.json may name the variables (roles.<role>.key_env / id_env), so a project that already stores App keys under
+  # other names (for example per-persona names) keeps its environment unchanged.
+  local kv iv
+  kv=$(crew_get ".roles[\"$role\"].key_env" "AGENT_APP_KEY_$rv"); iv=$(crew_get ".roles[\"$role\"].id_env" "AGENT_APP_ID_$rv")
+  app="${!iv:-}"
+  # No id variable: the App id is public. Look it up by slug (GET /apps/<slug>) and cache it.
+  if [ -z "$app" ]; then
+    [ -s "$state/appid-$role" ] && app=$(cat "$state/appid-$role")
+    if [ -z "$app" ]; then
+      local slug; slug=$(crew_get ".roles[\"$role\"].app")
+      [ -n "$slug" ] && app=$(curl -fsS --noproxy '*' -H "Accept: application/vnd.github+json" "$api/apps/$slug" 2>/dev/null | jq -r '.id // empty' 2>/dev/null)
+      [ -n "$app" ] && printf '%s' "$app" >"$state/appid-$role"
+    fi
+  fi
+  [ -n "$app" ] || { why "$iv is not set in this environment and the App id could not be looked up"; return 1; }
   key="${!kv:-}"
   [ -n "$key" ] || ! command -v security >/dev/null || key=$(security find-generic-password -s "crew-agent-$role" -w 2>/dev/null)
   [ -n "$key" ] || { why "$kv is not set in this environment"; return 1; }
@@ -157,7 +170,8 @@ selftest() {
   # a bad key is refused, with its cause recorded
   if (export "AGENT_APP_ID_$rv=1" "AGENT_APP_KEY_$rv=$(printf 'not a key' | openssl base64 -A)"; token >/dev/null 2>&1); then echo "selftest: token from a bad key"; exit 1; fi
   grep -q 'not the base64 of a private key' "$state/why" || { echo "selftest: bad-key cause not recorded"; exit 1; }
-  # a missing App id is refused, with its cause recorded
+  # a missing App id is refused, with its cause recorded (the id lookup must not reach the real GitHub from a test)
+  api="http://127.0.0.1:9"
   if (export "AGENT_APP_KEY_$rv=$(openssl base64 -A <"$d/k.pem")"; token >/dev/null 2>&1); then echo "selftest: token without an app id"; exit 1; fi
   grep -q "AGENT_APP_ID_$rv is not set" "$state/why" || { echo "selftest: missing-id cause not recorded"; exit 1; }
   # the shim adds the token only inside its checkouts
