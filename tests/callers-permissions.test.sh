@@ -7,10 +7,16 @@ command -v ruby >/dev/null 2>&1 || { echo "callers-permissions.test: ruby missin
 ruby -ryaml -e '
 LEVEL = {"none"=>0, "read"=>1, "write"=>2}
 map = {"crew-wake"=>"wake","crew-review"=>"review","crew-change-sync"=>"change-sync","crew-owner-alert"=>"owner-alert",
-       "crew-schedule-worker"=>"role-run","crew-schedule-lead"=>"role-run","crew-schedule-pm"=>"role-run"}
+       }
+# the schedule callers are generated from crew.json, one per role: check every generated file
+require "tmpdir"
+gen = Dir.mktmpdir
+system("python3", "scripts/lib/schedules.py", "render", "--crew", "examples/domain-pack/crew.json", "--out", gen, "--harness-repo", "x/y", "--harness-ref", "main", out: File::NULL) or abort("render failed")
+Dir.glob("#{gen}/crew-schedule-*.yml").sort.each { |f| map[File.basename(f, ".yml")] = ["role-run", f] }
 pass = fail = 0
 map.each do |caller, reusable|
-  cy = YAML.safe_load(File.read("templates/callers/#{caller}.yml").gsub(/<[A-Z_]+>/, "x/y"), aliases: true)
+  reusable, file = reusable if reusable.is_a?(Array)
+  cy = YAML.safe_load(File.read(file || "templates/callers/#{caller}.yml").gsub(/<[A-Z_]+>/, "x/y"), aliases: true)
   ry = YAML.safe_load(File.read(".github/workflows/#{reusable}.yml"), aliases: true)
   need = {}
   ([ry["permissions"]] + ry["jobs"].values.map { |j| j["permissions"] }).compact.each do |h|

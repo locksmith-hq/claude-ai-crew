@@ -8,7 +8,7 @@ Fact labels: **vendor-doc** means taken from the vendor's documentation, **obser
 
 A GitHub Actions job runs the role. `role-run.yml` checks out the harness, the plan repo and each code repo side by side in the workspace, sets `CREW_HARNESS_DIR`, `CREW_PLAN_DIR` and `CREW_CODE_DIR`, and starts `anthropics/claude-code-action@v1` with a stub prompt. The stub tells the agent to read `prompts/common.md`, `prompts/<role>.md` and the plan repo's owner rules, and to follow them. The role key is passed as `AGENT_PERSONA`.
 
-- Start it from a schedule caller (`crew-schedule-worker.yml`, `crew-schedule-lead.yml`, `crew-schedule-pm.yml`) or by hand with `workflow_dispatch`.
+- Start it from a generated schedule caller (`crew-schedule-<role>.yml`, one per role, made by `crew init` and `crew schedules` from `crew.json`) or by hand with `workflow_dispatch`.
 - A wake (an issue comment, a failed CI run) can call `role-run.yml` too, with `kind: wake` and the reason in `prompt_extra`. The shipped wake workflow fires routines only; add a caller of your own for this.
 - One run per role at a time (a `concurrency` group per role).
 
@@ -40,7 +40,7 @@ Reusable workflows cannot hold triggers (`issues`, `issue_comment`, `workflow_ru
 | crew-review.yml | each code repo | review.yml | the `merge-ready` check |
 | crew-change-sync.yml | plan repo | change-sync.yml | status issues, milestones |
 | crew-owner-alert.yml | plan repo | owner-alert.yml | owner @mention fallback |
-| crew-schedule-*.yml | plan repo | role-run.yml | Actions runner |
+| crew-schedule-<role>.yml (generated) | plan repo | role-run.yml | Actions runner |
 
 Keep workflow names consistent: the names in `crew-wake.yml` `workflows:` must equal your CI workflow's `name:` and `crew-review`.
 
