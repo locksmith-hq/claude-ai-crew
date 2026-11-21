@@ -100,6 +100,11 @@ jobs:
             d="EOF_$(openssl rand -hex 8)"
             { echo "$key<<$d"; echo "$val"; echo "$d"; } >>"$GITHUB_ENV"
           fi
+      # claude-code-action configures git in the workspace root, but the harness, plan and code repos are checked out
+      # into subfolders, so the root is not a repository ("fatal: not in a git directory"). Make it one; the agent
+      # works inside the subfolders.
+      - name: Make the workspace root a git repository
+        run: git init -q "$GITHUB_WORKSPACE"
       - uses: anthropics/claude-code-action@v1
         env:
           CREW_HARNESS_DIR: ${{ github.workspace }}/harness
