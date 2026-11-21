@@ -43,7 +43,7 @@ cmd_init() {
     bash "$HERE/validate-pack.sh" "$pack" >/dev/null || die "generated crew.json is invalid"
     act "clone $PLAN and add the domain pack" bash -c "
       git clone -q 'https://github.com/$PLAN.git' '$work/plan' && cd '$work/plan' &&
-      cp -n '$pack' crew.json && for f in owner lessons decisions roadmap; do cp -n '$HARNESS/templates/starter/'\$f.md \$f.md; done &&
+      { [ -e crew.json ] || cp '$pack' crew.json; } && for f in owner lessons decisions roadmap; do [ -e \$f.md ] || cp '$HARNESS/templates/starter/'\$f.md \$f.md; done &&
       git add -A && { git diff --cached --quiet || { git commit -q -m 'Add the claude-ai-crew domain pack' && git push -q; }; }"; }
   # 3. labels (the help channels) in the plan repo
   for l in $LABELS; do act "label '$l' in $PLAN" bash -c "gh api -X POST repos/$PLAN/labels -f name='$l' >/dev/null 2>&1 || true"; done
@@ -81,6 +81,9 @@ cmd_install_callers() {
     done
   }
   [ "$dry" = 1 ] && { say "         would add: $(callers_for | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"; return 0; }
+  # Idempotent: an open install PR means a previous run already did this.
+  [ "$(gh pr list -R "$repo" --head crew/install-workflows --state open --json number --jq length 2>/dev/null || echo 0)" -gt 0 ] 2>/dev/null &&
+    { say "         install PR already open in $repo, skipping"; return 0; }
   d="$work/callers-$(echo "$repo" | tr / -)"
   gh repo clone "$repo" "$d" -- -q >/dev/null 2>&1 || return 1
   git -C "$d" checkout -q -b crew/install-workflows || return 1
