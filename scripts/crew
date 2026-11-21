@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # crew: set up and check a claude-ai-crew installation.
 #   crew init   [--plan] --project NAME --plan-repo ORG/NAME --code-repo ORG/NAME [--code-repo ...]
-#               [--runner actions|routines] [--identity solo|apps] [--harness-repo ORG/NAME] [--harness-ref REF]
-#   crew apps create [--crew path/to/crew.json] [--role R ...] [--org] [--plan]   one GitHub App per role (manifest flow)
+#               [--runner actions|routines] [--identity single|roles|token] [--no-claude-login] [--harness-repo ORG/NAME] [--harness-ref REF]
+#   crew apps create [--crew path/to/crew.json] [--single | --role R ...] [--org] [--plan]   GitHub App(s) via the manifest flow
+#   crew activate [--crew path/to/crew.json] [--yes]   merge the install PRs, enable the schedules, run doctor
 #   crew apps list   [--crew path/to/crew.json]                                    which roles have an App key and id stored
 #   crew doctor [path/to/crew.json]
-# `init --plan` prints every action and changes nothing. Secrets are read silently and passed straight to
-# `gh secret set`; nothing secret is printed, logged or written to disk.
+# `init --plan` prints every action and changes nothing. No secret is ever pasted: the Claude token is fetched by
+# `claude setup-token` and the GitHub App key by the manifest flow; both are piped straight into `gh secret set`
+# and are never printed, logged or written to disk.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; HARNESS="$(cd "$HERE/.." && pwd)"
-DRY=0; PROJECT=""; PLAN=""; CODES=(); RUNNER=actions; IDENT=solo
+DRY=0; PROJECT=""; PLAN=""; CODES=(); RUNNER=actions; IDENT=single; CLAUDE_LOGIN=1
 HREPO="locksmith-hq/claude-ai-crew"; HREF=main
 say() { printf '%s\n' "$*"; }
 die() { echo "crew: $*" >&2; exit 2; }
@@ -21,11 +23,11 @@ LABELS="needs-rescue needs-owner needs-research needs-work debate harness-backlo
 cmd_init() {
   while [ $# -gt 0 ]; do case "$1" in
     --plan) DRY=1 ;; --project) PROJECT="$2"; shift ;; --plan-repo) PLAN="$2"; shift ;;
-    --code-repo) CODES+=("$2"); shift ;; --runner) RUNNER="$2"; shift ;; --identity) IDENT="$2"; shift ;;
+    --code-repo) CODES+=("$2"); shift ;; --runner) RUNNER="$2"; shift ;; --identity) IDENT="$2"; shift ;; --no-claude-login) CLAUDE_LOGIN=0 ;;
     --harness-repo) HREPO="$2"; shift ;; --harness-ref) HREF="$2"; shift ;; *) die "unknown option: $1" ;; esac; shift; done
   [ -n "$PROJECT" ] && [ -n "$PLAN" ] && [ "${#CODES[@]}" -gt 0 ] || die "init needs --project, --plan-repo and at least one --code-repo"
   case "$RUNNER" in actions|routines) ;; *) die "--runner must be actions or routines" ;; esac
-  case "$IDENT" in solo|apps) ;; *) die "--identity must be solo or apps" ;; esac
+  case "$IDENT" in single|roles|token) ;; *) die "--identity must be single, roles or token" ;; esac
   for r in "$PLAN" "${CODES[@]}"; do [[ "$r" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "not an owner/name repo: $r"; done
   command -v gh >/dev/null && command -v jq >/dev/null && command -v git >/dev/null || die "gh, jq and git are required"
   if [ "$DRY" = 1 ]; then owner="<your-login>"; else owner=$(gh api user --jq .login) || die "gh is not logged in"; fi
@@ -54,15 +56,20 @@ cmd_init() {
     act "open a PR in $r that installs the crew workflow callers for a code repo (wake, review; harness $HREPO@$HREF)" bash "$HERE/crew" _install-callers "$r" "$HREPO" "$HREF" "$RUNNER" "$work" "$DRY" "$PLAN" code
   done
   act "open a PR in $PLAN that installs the crew workflow callers for the plan repo (wake, change-sync, owner-alert, schedules; harness $HREPO@$HREF)" bash "$HERE/crew" _install-callers "$PLAN" "$HREPO" "$HREF" "$RUNNER" "$work" "$DRY" "$PLAN" plan
-  # 5. secrets (names only here; values are read silently)
-  say "NEXT   secrets, set once per repo (the values are never shown):"
-  for r in "$PLAN" "${CODES[@]}"; do
-    say "         gh secret set CLAUDE_CODE_OAUTH_TOKEN -R $r   # from: claude setup-token"
-    say "         gh secret set CREW_REPO_TOKEN -R $r           # fine-grained token: contents, issues, pull requests on all the repos above"
-  done
+  # 5. Claude login: the token is fetched by `claude setup-token` and piped into each repo's secret. Nothing is pasted.
+  allrepos=$(IFS=,; echo "$PLAN,${CODES[*]}")
+  if [ "$CLAUDE_LOGIN" = 1 ]; then
+    act "log in to Claude (browser) and store CLAUDE_CODE_OAUTH_TOKEN in: ${allrepos}" python3 "$HERE/lib/claude_token.py" --repos "$allrepos"
+  else say "NEXT   claude login skipped: run: python3 scripts/lib/claude_token.py --repos $allrepos"; fi
+  # 6. repo access for the workflows: App installation tokens (one click) instead of a personal access token
+  case "$IDENT" in
+    single) act "create ONE GitHub App for the crew (browser: click 'Create GitHub App', then install it) and store CREW_APP_ID / CREW_APP_KEY" \
+              bash "$HERE/crew" apps create --crew "$work/plan/crew.json" --single ;;
+    roles)  act "create one GitHub App per role (browser clicks) and store the keys" bash "$HERE/crew" apps create --crew "$work/plan/crew.json" ;;
+    token)  say "NEXT   identity=token: set CREW_REPO_TOKEN (a fine-grained token with contents, issues and pull requests on all the repos) in: $allrepos" ;;
+  esac
   [ "$RUNNER" = routines ] && say "NEXT   routines runner: create one routine per role and store each fire token as the secret named in crew.json roles.*.secret"
-  [ "$IDENT" = apps ] && say "NEXT   identity=apps: run: crew apps create --crew $work/plan/crew.json   (one browser click per role)"
-  say "NEXT   then run: crew doctor $work/plan/crew.json"
+  say "NEXT   then run: crew activate --crew $work/plan/crew.json   (merges the install PRs, enables the schedules, runs doctor)"
   [ "$FAILED" = 0 ] || exit 1
 }
 
@@ -100,30 +107,34 @@ cmd_install_callers() {
 # crew apps create|list
 cmd_apps() {
   local sub="${1:-}"; shift || true
-  local cfg="${CREW_CONFIG:-./crew.json}" org=0 roles=() r
+  local cfg="${CREW_CONFIG:-./crew.json}" org=0 single=0 roles=() r
   while [ $# -gt 0 ]; do case "$1" in
-    --crew) cfg="$2"; shift ;; --role) roles+=("$2"); shift ;; --org) org=1 ;; --plan) DRY=1 ;; *) die "unknown option: $1" ;; esac; shift; done
+    --crew) cfg="$2"; shift ;; --role) roles+=("$2"); shift ;; --org) org=1 ;; --single) single=1 ;; --plan) DRY=1 ;; *) die "unknown option: $1" ;; esac; shift; done
   [ -f "$cfg" ] || die "no crew.json at $cfg (use --crew)"
   command -v jq >/dev/null || die "jq is required"
   local project owner repos; project=$(jq -r .project "$cfg"); owner=$(jq -r .owner.login "$cfg")
   repos=$(jq -r '[.repos.plan] + .repos.code | join(",")' "$cfg")
-  [ "${#roles[@]}" -gt 0 ] || while IFS= read -r r; do roles+=("$r"); done < <(jq -r '.roles | keys[]' "$cfg")
+  if [ "$single" = 1 ]; then roles=(crew)
+  elif [ "${#roles[@]}" -eq 0 ]; then while IFS= read -r r; do roles+=("$r"); done < <(jq -r '.roles | keys[]' "$cfg"); fi
   case "$sub" in
     create)
       command -v python3 >/dev/null || die "python3 is required"
+      local singleflag=(); [ "$single" = 1 ] && singleflag=(--single)
       local orgflag=(); [ "$org" = 1 ] && { owner=$(jq -r '.repos.plan | split("/")[0]' "$cfg"); orgflag=(--org); }
       say "crew apps: roles=${roles[*]} owner=$owner$([ "$org" = 1 ] && echo " (organization)") keys stored in: $repos"
       for r in "${roles[@]}"; do
-        if [ "$DRY" = 1 ]; then say "PLAN   create GitHub App ${project}-${r} (opens your browser; you click 'Create GitHub App'), then store AGENT_APP_KEY_ and AGENT_APP_ID_ for $r"; continue; fi
+        if [ "$DRY" = 1 ]; then say "PLAN   create GitHub App ${project}-${r} (opens your browser; you click 'Create GitHub App'), then store the key and id for $r"; continue; fi
         say "== role $r: a browser tab opens; click 'Create GitHub App' on github.com"
-        python3 "$HERE/lib/app_manifest.py" --project "$project" --role "$r" --owner "$owner" "${orgflag[@]}" --repos "$repos" || { say "FAIL   app for $r"; FAILED=1; }
+        python3 "$HERE/lib/app_manifest.py" --project "$project" --role "$r" --owner "$owner" "${orgflag[@]}" "${singleflag[@]}" --repos "$repos" || { say "FAIL   app for $r"; FAILED=1; }
       done
       say "NEXT   install each new App on: $repos (the INSTALL links above), then run: crew doctor $cfg"
       [ "$FAILED" = 0 ] || exit 1 ;;
     list)
       local rp; for rp in $(jq -r '.repos.plan, .repos.code[]' "$cfg"); do
         local sn vn; sn=$(gh secret list -R "$rp" --json name --jq '.[].name' 2>/dev/null); vn=$(gh variable list -R "$rp" --json name --jq '.[].name' 2>/dev/null)
+        grep -qx "CREW_APP_KEY" <<<"$sn" && grep -qx "CREW_APP_ID" <<<"$vn" && say "OK     $rp: shared crew App key and id" || say "MISSING $rp: shared crew App (CREW_APP_KEY / CREW_APP_ID)"
         for r in "${roles[@]}"; do
+          [ "$single" = 1 ] && continue
           local sfx; sfx=$(tr 'a-z-' 'A-Z_' <<<"$r")
           grep -qx "AGENT_APP_KEY_$sfx" <<<"$sn" && grep -qx "AGENT_APP_ID_$sfx" <<<"$vn" && say "OK     $rp: $r has an App key and id" || say "MISSING $rp: $r (AGENT_APP_KEY_$sfx / AGENT_APP_ID_$sfx)"
         done
@@ -146,7 +157,12 @@ cmd_doctor() {
     gh api "repos/$r" >/dev/null 2>&1 && ok "repo $r reachable" || { bad "repo $r not reachable"; continue; }
     gh api "repos/$r/contents/.github/workflows/crew-wake.yml" >/dev/null 2>&1 && ok "$r: wake caller installed" || warn "$r: crew-wake.yml not installed (merge the install PR)"
     local names; names=$(gh secret list -R "$r" --json name --jq '.[].name' 2>/dev/null)
-    for s in CLAUDE_CODE_OAUTH_TOKEN CREW_REPO_TOKEN; do grep -qx "$s" <<<"$names" && ok "$r: secret $s set" || warn "$r: secret $s missing"; done
+    grep -qx CLAUDE_CODE_OAUTH_TOKEN <<<"$names" && ok "$r: Claude token set" || warn "$r: CLAUDE_CODE_OAUTH_TOKEN missing (run: crew init, or python3 scripts/lib/claude_token.py --repos $r)"
+    local vars0; vars0=$(gh variable list -R "$r" --json name --jq '.[].name' 2>/dev/null)
+    if grep -qx CREW_APP_KEY <<<"$names" && grep -qx CREW_APP_ID <<<"$vars0"; then ok "$r: shared crew App configured"
+    elif grep -qx CREW_REPO_TOKEN <<<"$names"; then ok "$r: CREW_REPO_TOKEN set (token identity)"
+    elif grep -q '^AGENT_APP_KEY_' <<<"$names"; then ok "$r: per-role Apps configured"
+    else warn "$r: no repo access configured (run: crew apps create --single)"; fi
     if grep -q '^AGENT_APP_KEY_' <<<"$names"; then
       local vars role sfx; vars=$(gh variable list -R "$r" --json name --jq '.[].name' 2>/dev/null)
       for role in $(jq -r '.roles | keys[]' "$cfg"); do
@@ -161,11 +177,43 @@ cmd_doctor() {
   say "doctor: $B fail, $W warn"; [ "$B" = 0 ]
 }
 
+# crew activate: merge the install PRs, enable the schedules, run doctor
+cmd_activate() {
+  local cfg="${CREW_CONFIG:-./crew.json}" yes=0
+  while [ $# -gt 0 ]; do case "$1" in --crew) cfg="$2"; shift ;; --yes) yes=1 ;; *) die "unknown option: $1" ;; esac; shift; done
+  [ -f "$cfg" ] || die "no crew.json at $cfg (use --crew)"
+  local plan repos r n prs=()
+  plan=$(jq -r '.repos.plan' "$cfg"); repos="$plan $(jq -r '.repos.code[]' "$cfg")"
+  for r in $repos; do
+    n=$(gh pr list -R "$r" --head crew/install-workflows --state open --json number --jq '.[0].number // empty' 2>/dev/null)
+    [ -n "$n" ] && prs+=("$r#$n")
+  done
+  if [ "${#prs[@]}" -gt 0 ]; then
+    say "install PRs to merge: ${prs[*]}"
+    if [ "$yes" != 1 ]; then read -r -p "Merge them and enable the schedules? [y/N] " a; [ "$a" = y ] || [ "$a" = Y ] || die "stopped"; fi
+    for p in "${prs[@]}"; do
+      r=${p%#*}; n=${p#*#}
+      local st; st=$(gh pr view "$n" -R "$r" --json mergeStateStatus --jq .mergeStateStatus 2>/dev/null)
+      if [ "$st" = CLEAN ] || [ "$st" = UNSTABLE ] || [ "$st" = HAS_HOOKS ]; then act "merge $r#$n" gh pr merge "$n" -R "$r" --merge
+      else say "WARN   $r#$n is $st: not merged (fix it, then run crew activate again)"; fi
+    done
+  else say "no open install PRs (already merged?)"; fi
+  # the schedules were disabled by `crew init` runs that predate secrets; enable them once the Claude token exists
+  local names; names=$(gh secret list -R "$plan" --json name --jq '.[].name' 2>/dev/null)
+  if grep -qx CLAUDE_CODE_OAUTH_TOKEN <<<"$names"; then
+    for w in crew-schedule-worker crew-schedule-lead crew-schedule-pm; do
+      gh api "repos/$plan/actions/workflows/$w.yml" >/dev/null 2>&1 && act "enable $w in $plan" gh workflow enable "$w.yml" -R "$plan"
+    done
+  else say "WARN   no Claude token in $plan: schedules left as they are"; fi
+  cmd_doctor "$cfg"
+}
+
 case "${1:-}" in
   init) shift; cmd_init "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;
   apps) shift; cmd_apps "$@" ;;
+  activate) shift; cmd_activate "$@" ;;
   _install-callers) shift; cmd_install_callers "$@" ;;
-  ""|-h|--help|help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command: $1 (try: crew help)" ;;
 esac

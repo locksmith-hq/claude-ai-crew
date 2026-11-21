@@ -47,11 +47,11 @@ them. Change the harness once and every project that uses it benefits.
 ```bash
 # 1. See what setup would do (changes nothing)
 scripts/crew init --plan --project myapp --plan-repo me/myapp-plan --code-repo me/myapp
-# 2. Do it: creates the private plan repo and domain pack, the help labels, and a PR in each repo that
-#    installs the workflow callers. Secrets are printed as `gh secret set` steps and never handled by the tool.
+# 2. Do it. Creates the plan repo, domain pack and labels, opens the install PRs, then asks for two browser
+#    approvals: your Claude login and "Create GitHub App". Nothing is pasted; keys go straight into secrets.
 scripts/crew init --project myapp --plan-repo me/myapp-plan --code-repo me/myapp
-# 3. Set the secrets it lists, optionally create per-role GitHub Apps (scripts/crew apps create), merge the install PRs, then check the wiring
-scripts/crew doctor path/to/myapp-plan/crew.json
+# 3. Merge the install PRs, enable the schedules and check the wiring
+scripts/crew activate --crew path/to/myapp-plan/crew.json
 ```
 
 Pick a runner: **Actions** (default, works on any plan, scheduled GitHub workflows) or **routines** (Claude

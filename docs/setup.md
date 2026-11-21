@@ -5,25 +5,26 @@ The fastest way: open Claude Code in a checkout of this repo and say "set up cla
 for the parts only you can do. Prefer the terminal? Run the commands yourself.
 
 ## What you need
-`gh` (logged in), `git`, `jq`, `python3`; a GitHub account or org; a Claude subscription (for `claude setup-token`).
+`gh` (logged in), `git`, `jq`, `python3`, the `claude` CLI; a GitHub account or org; a Claude subscription.
 
-## Steps
+## Steps (nothing to paste)
 1. **Dry run:** `scripts/crew init --plan --project myapp --plan-repo me/myapp-plan --code-repo me/myapp`. Nothing changes.
-2. **Init:** the same command without `--plan`. Creates the private plan repo with `crew.json`, owner rules, lessons,
-   decisions and roadmap starters; the help-channel labels; and one PR per repo installing the workflow callers.
-3. **Secrets** (per repo, you paste the value at the prompt, nothing is shown):
-   - `gh secret set CLAUDE_CODE_OAUTH_TOKEN -R <repo>`: a token from `claude setup-token`.
-   - `gh secret set CREW_REPO_TOKEN -R <repo>`: a fine-grained token with contents, issues and pull requests on all the repos.
-4. **Identity.** Default `solo`: agents act through the workflow token and mark their comments with a role. For a separate
-   identity per role (`--identity apps`): `scripts/crew apps create --crew <plan>/crew.json`. For each role a tab opens on
-   github.com; click **Create GitHub App**. The key is piped straight into a repo secret; the app id becomes a variable.
-   Then open the printed install link and choose the plan and code repos.
-5. **Merge the install PRs**, then **verify:** `scripts/crew doctor <plan>/crew.json`.
-6. **Schedules:** with the Actions runner the schedule callers run on their cron (edit the cron lines to taste, avoid your
-   busy hours). With routines, see [recipes/routines.md](recipes/routines.md).
+2. **Init:** the same command without `--plan`. It creates the private plan repo with `crew.json`, owner rules, lessons,
+   decisions and roadmap starters; the help-channel labels; one install PR per repo; then two short browser steps:
+   - **Claude login:** it runs `claude setup-token`, you approve the login in your browser, and the token goes straight
+     into each repo's secret. You never see or paste it.
+   - **GitHub App:** one shared App for the crew. Click **Create GitHub App** on github.com, then **Install** and choose the
+     repos. The key goes straight into a secret and the id into a variable; the workflows mint short-lived tokens from
+     them. (`--identity roles` makes one App per role; `--identity token` uses a personal access token you provide.)
+3. **Activate:** `scripts/crew activate --crew <plan>/crew.json`. It merges the install PRs once they are clean, enables
+   the schedules and runs the check. Add `--yes` to skip the prompt.
+4. **Verify any time:** `scripts/crew doctor <plan>/crew.json`.
+
+Schedules: with the Actions runner the schedule callers run on their cron (edit the cron lines to taste, avoid your busy
+hours). With routines, see [recipes/routines.md](recipes/routines.md).
 
 ## How apps are created (and why it is safe)
-`crew apps` uses GitHub's App manifest flow entirely on your machine: a local page posts the manifest to GitHub in your
+The App step uses GitHub's App manifest flow entirely on your machine: a local page posts the manifest to GitHub in your
 browser, GitHub redirects back to `http://127.0.0.1`, and the script trades the one-time code for the key. Nothing is
 sent to a server we run. Permissions are minimal per role (reviewer and research get less than workers); no webhooks, no events.
 

@@ -66,6 +66,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
+      # Short-lived token from the crew's GitHub App (created by `crew apps create --single`), so no personal
+      # access token is needed. Falls back to CREW_REPO_TOKEN, then to the workflow token.
+      - id: crewtok
+        if: ${{ vars.CREW_APP_ID != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.CREW_APP_ID }}
+          private-key: ${{ secrets.CREW_APP_KEY }}
+          owner: ${{ github.repository_owner }}
       - uses: actions/checkout@v4
         with:
           repository: ${{ inputs.harness_repo }}
@@ -77,12 +86,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ${{ inputs.plan_repo }}
-          token: ${{ secrets.CREW_REPO_TOKEN || github.token }}
+          token: ${{ steps.crewtok.outputs.token || secrets.CREW_REPO_TOKEN || github.token }}
           path: plan
           sparse-checkout: crew.json
           sparse-checkout-cone-mode: false
       - env:
-          GH_TOKEN: ${{ secrets.CREW_REPO_TOKEN || github.token }}
+          GH_TOKEN: ${{ steps.crewtok.outputs.token || secrets.CREW_REPO_TOKEN || github.token }}
           SECRETS_JSON: ${{ toJSON(secrets) }}
           CREW_CONFIG: ${{ github.workspace }}/plan/crew.json
           CREW_PLAN_DIR: ${{ github.workspace }}/plan

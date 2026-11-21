@@ -53,5 +53,12 @@ grep -q 'FAKEKEYMATERIAL' "$KEYFILE" && ok "private key reached gh through stdin
 if grep -rq 'FAKEKEYMATERIAL' "$S/out.txt" "$S/err.txt" "$GHLOG"; then no "private key never printed or passed as an argument"; else ok "private key never printed or passed as an argument"; fi
 grep -q 'installations/new' "$S/out.txt" && ok "prints the install link" || no "prints the install link"
 python3 "$APP" --project demo --role "Bad Role" --owner acme --repos a/b --no-browser >/dev/null 2>&1 && no "invalid role name rejected" || ok "invalid role name rejected"
+# --single stores the shared-app names
+: > "$GHLOG"; PORT=$((20000 + RANDOM % 20000))
+CREW_API_BASE="$API" python3 "$APP" --project demo --role crew --single --owner acme --repos acme/plan --port "$PORT" --no-browser --timeout 20 > "$S/out2.txt" 2> "$S/err2.txt" & APPPID=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do curl -fsS "http://127.0.0.1:$PORT/" -o "$S/page2.html" 2>/dev/null && break; sleep 0.3; done
+STATE=$(grep -oE 'state=[0-9a-f]+' "$S/page2.html" | head -1 | cut -d= -f2)
+curl -s -o /dev/null "http://127.0.0.1:$PORT/callback?code=good&state=$STATE"; wait "$APPPID"
+grep -q 'secret set CREW_APP_KEY -R acme/plan' "$GHLOG" && grep -q 'variable set CREW_APP_ID -R acme/plan --body 4242' "$GHLOG" && ok "--single stores CREW_APP_KEY and CREW_APP_ID" || no "--single stores CREW_APP_KEY and CREW_APP_ID"
 kill "$APIPID" 2>/dev/null; wait "$APIPID" 2>/dev/null; rm -rf "$S"
 echo "app-manifest.test: $pass passed, $failn failed"; [ "$failn" = 0 ]

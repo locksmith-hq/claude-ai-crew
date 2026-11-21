@@ -59,6 +59,15 @@ jobs:
       group: crew-role-${{ inputs.role }}
       cancel-in-progress: false
     steps:
+      # Short-lived token from the crew's GitHub App (created by `crew apps create --single`), so no personal
+      # access token is needed. Falls back to CREW_REPO_TOKEN, then to the workflow token.
+      - id: crewtok
+        if: ${{ vars.CREW_APP_ID != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.CREW_APP_ID }}
+          private-key: ${{ secrets.CREW_APP_KEY }}
+          owner: ${{ github.repository_owner }}
       - uses: actions/checkout@v4
         with:
           repository: ${{ inputs.harness_repo }}
@@ -67,12 +76,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ${{ inputs.plan_repo }}
-          token: ${{ secrets.CREW_REPO_TOKEN || github.token }}
+          token: ${{ steps.crewtok.outputs.token || secrets.CREW_REPO_TOKEN || github.token }}
           path: plan
           fetch-depth: 0
       - id: code
         env:
-          GH_TOKEN: ${{ secrets.CREW_REPO_TOKEN || github.token }}
+          GH_TOKEN: ${{ steps.crewtok.outputs.token || secrets.CREW_REPO_TOKEN || github.token }}
           SECRETS_JSON: ${{ toJSON(secrets) }}
         run: |
           jq -e --arg r "${{ inputs.role }}" '.roles[$r]' plan/crew.json >/dev/null || { echo "::error::role ${{ inputs.role }} is not in crew.json"; exit 1; }
@@ -98,10 +107,10 @@ jobs:
           CREW_CODE_DIR: ${{ steps.code.outputs.first }}
           CREW_CONFIG: ${{ github.workspace }}/plan/crew.json
           AGENT_PERSONA: ${{ inputs.role }}
-          GH_TOKEN: ${{ secrets.CREW_REPO_TOKEN || github.token }}
+          GH_TOKEN: ${{ steps.crewtok.outputs.token || secrets.CREW_REPO_TOKEN || github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.CREW_REPO_TOKEN || github.token }}
+          github_token: ${{ steps.crewtok.outputs.token || secrets.CREW_REPO_TOKEN || github.token }}
           show_full_output: true
           prompt: |
             You are the ${{ inputs.role }} role (persona ${{ inputs.role }}). This is a ${{ inputs.kind }} run on a GitHub Actions runner.

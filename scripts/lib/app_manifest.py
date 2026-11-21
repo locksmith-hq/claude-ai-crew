@@ -8,7 +8,7 @@ How it works (no server of ours is involved):
   4. It exchanges the code for the app id and private key (POST /app-manifests/<code>/conversions).
   5. The private key is piped straight into `gh secret set` (stdin). It is never printed or written to disk.
 
-Usage: app_manifest.py --project P --role R --owner ORG_OR_USER [--org] --repos plan/repo,code/repo
+Usage: app_manifest.py --project P --role R --owner ORG_OR_USER [--org] [--single] --repos plan/repo,code/repo
                        [--harness-url URL] [--port N] [--no-browser] [--timeout SECS]
 Env:   CREW_API_BASE (default https://api.github.com), CREW_GITHUB_BASE (default https://github.com): test hooks.
 """
@@ -53,13 +53,13 @@ def convert(code):
 def gh(args, stdin=None):
     return subprocess.run(["gh"] + args, input=stdin, text=True, capture_output=True)
 
-def store(role, app, repos):
+def store(key_name, id_name, app, repos):
     """Private key -> secret via stdin; app id -> repository variable. Returns a list of problems."""
-    sfx = env_suffix(role); problems = []
+    problems = []
     for repo in repos:
-        r = gh(["secret", "set", f"AGENT_APP_KEY_{sfx}", "-R", repo], stdin=app["pem"])
+        r = gh(["secret", "set", key_name, "-R", repo], stdin=app["pem"])
         if r.returncode: problems.append(f"secret in {repo}: {r.stderr.strip()[:120]}")
-        r = gh(["variable", "set", f"AGENT_APP_ID_{sfx}", "-R", repo, "--body", str(app["id"])])
+        r = gh(["variable", "set", id_name, "-R", repo, "--body", str(app["id"])])
         if r.returncode: problems.append(f"variable in {repo}: {r.stderr.strip()[:120]}")
     return problems
 
@@ -78,6 +78,8 @@ def main():
     ap.add_argument("--repos", required=True); ap.add_argument("--port", type=int, default=0)
     ap.add_argument("--harness-url", default="https://github.com/locksmith-hq/claude-ai-crew")
     ap.add_argument("--no-browser", action="store_true"); ap.add_argument("--timeout", type=int, default=600)
+    ap.add_argument("--single", action="store_true",
+                    help="one shared App for the whole crew: key in CREW_APP_KEY, id in CREW_APP_ID (workflows mint short-lived tokens from it)")
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9-]+", a.role) or not re.fullmatch(r"[A-Za-z0-9_.-]+", a.project):
         sys.exit("crew apps: project and role may only contain letters, digits, dashes, dots and underscores")
@@ -112,12 +114,13 @@ def main():
     srv.shutdown()
     if "error" in result: sys.exit(f"crew apps: {result['error']}")
     app = result["app"]
-    problems = store(a.role, app, repos)
+    key_name, id_name = ("CREW_APP_KEY", "CREW_APP_ID") if a.single else (f"AGENT_APP_KEY_{env_suffix(a.role)}", f"AGENT_APP_ID_{env_suffix(a.role)}")
+    problems = store(key_name, id_name, app, repos)
     print(f"CREATED {app.get('slug')} (id {app.get('id')}) for role {a.role}")
     print(f"INSTALL https://github.com/apps/{app.get('slug')}/installations/new  (choose: {', '.join(repos)})")
     if problems:
         print("WARN   storing failed: " + "; ".join(problems), file=sys.stderr); sys.exit(1)
-    print(f"STORED AGENT_APP_KEY_{env_suffix(a.role)} (secret) and AGENT_APP_ID_{env_suffix(a.role)} (variable) in: {', '.join(repos)}")
+    print(f"STORED {key_name} (secret) and {id_name} (variable) in: {', '.join(repos)}")
 
 if __name__ == "__main__":
     main()
