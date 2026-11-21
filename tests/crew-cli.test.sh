@@ -29,4 +29,9 @@ grep -q "OK     crew.json is valid" <<<"$out" && [ "$rc" = 0 ] && ok "doctor pas
 out=$(STUB_NO_SECRETS=1 bash "$CREW" doctor "$P" 2>&1); grep -q "WARN   acme/app: secret CLAUDE_CODE_OAUTH_TOKEN missing" <<<"$out" && ok "doctor warns on a missing secret" || no "doctor warns on a missing secret"
 jq '.repos.code=["missing/app"]' "$P" > "$S/c2.json"; bash "$CREW" doctor "$S/c2.json" >/dev/null 2>&1 && no "doctor fails on an unreachable repo" || ok "doctor fails on an unreachable repo"
 bash "$CREW" doctor "$S/none.json" >/dev/null 2>&1 && no "doctor fails without crew.json" || ok "doctor fails without crew.json"
+out=$(bash "$CREW" apps create --crew "$P" --plan 2>&1)
+grep -q "PLAN   create GitHub App example-lead" <<<"$out" && ok "apps create --plan lists one app per role" || no "apps create --plan lists one app per role"
+[ "$(grep -c '^PLAN   create GitHub App' <<<"$out")" = 4 ] && ok "apps create --plan covers every role" || no "apps create --plan covers every role"
+bash "$CREW" apps create --crew "$S/none.json" --plan >/dev/null 2>&1 && no "apps create needs a crew.json" || ok "apps create needs a crew.json"
+bash "$CREW" apps wat --crew "$P" >/dev/null 2>&1 && no "apps rejects an unknown subcommand" || ok "apps rejects an unknown subcommand"
 rm -rf "$S"; echo "crew-cli.test: $pass passed, $failn failed"; [ "$failn" = 0 ]
