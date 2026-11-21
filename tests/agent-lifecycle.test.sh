@@ -69,6 +69,11 @@ REALBIN="$(dirname "$(command -v curl)"):$(dirname "$(command -v jq)"):/usr/bin:
 out=$(E env PATH="$REALBIN" AGENT_API_URL="http://127.0.0.1:$(cat "$W/appsrv.port")" AGENT_APP_KEY_LEAD="$(printf "not a key" | openssl base64 -A)" bash "$S/agent-identity.sh" setup lead 2>&1)
 grep -q "^/apps/example-lead" "$W/hits.log" && ok "a missing App id is looked up by slug (GET /apps/<slug>)" || no "App id lookup by slug: $(cat "$W/hits.log" 2>/dev/null) $out"
 kill "$APPSRV" 2>/dev/null; wait "$APPSRV" 2>/dev/null
+# an App id in crew.json is used without any lookup
+jq '.roles.lead.app_id=4242' "$W/plan/crew.json" > "$W/crew5.json"
+: > "$W/hits.log"
+out=$(E env CREW_CONFIG="$W/crew5.json" AGENT_API_URL=http://127.0.0.1:9 AGENT_APP_KEY_LEAD="$(printf "not a key" | openssl base64 -A)" bash "$S/agent-identity.sh" setup lead 2>&1)
+grep -q "is not the base64 of a private key" <<<"$out" && ok "roles.<role>.app_id is used (the run got past the id step without a lookup)" || no "roles.<role>.app_id is used: $out"
 # ---- bg.sh
 E bash "$S/bg.sh" start ok 20 -- sh -c 'echo hello; exit 0' >/dev/null
 out=$(E bash "$S/bg.sh" wait ok 10); rc=$?
