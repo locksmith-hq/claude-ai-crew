@@ -2,6 +2,8 @@
 # crew: set up and check a claude-ai-crew installation.
 #   crew init   [--plan] --project NAME --plan-repo ORG/NAME --code-repo ORG/NAME [--code-repo ...]
 #               [--runner actions|routines] [--identity solo|apps] [--harness-repo ORG/NAME] [--harness-ref REF]
+#   crew apps create [--crew path/to/crew.json] [--role R ...] [--org] [--plan]   one GitHub App per role (manifest flow)
+#   crew apps list   [--crew path/to/crew.json]                                    which roles have an App key and id stored
 #   crew doctor [path/to/crew.json]
 # `init --plan` prints every action and changes nothing. Secrets are read silently and passed straight to
 # `gh secret set`; nothing secret is printed, logged or written to disk.
@@ -56,7 +58,7 @@ cmd_init() {
     say "         gh secret set CREW_REPO_TOKEN -R $r           # fine-grained token: contents, issues, pull requests on all the repos above"
   done
   [ "$RUNNER" = routines ] && say "NEXT   routines runner: create one routine per role and store each fire token as the secret named in crew.json roles.*.secret"
-  [ "$IDENT" = apps ] && say "NEXT   identity=apps: create one GitHub App per role (guided by the 'crew apps' step, coming in the next release)"
+  [ "$IDENT" = apps ] && say "NEXT   identity=apps: run: crew apps create --crew $work/plan/crew.json   (one browser click per role)"
   say "NEXT   then run: crew doctor $work/plan/crew.json"
   [ "$FAILED" = 0 ] || exit 1
 }
@@ -80,6 +82,41 @@ cmd_install_callers() {
       --body "Adds thin caller workflows for the crew harness ($hrepo@$href). Review before merging." >/dev/null
 }
 
+# crew apps create|list
+cmd_apps() {
+  local sub="${1:-}"; shift || true
+  local cfg="${CREW_CONFIG:-./crew.json}" org=0 roles=() r
+  while [ $# -gt 0 ]; do case "$1" in
+    --crew) cfg="$2"; shift ;; --role) roles+=("$2"); shift ;; --org) org=1 ;; --plan) DRY=1 ;; *) die "unknown option: $1" ;; esac; shift; done
+  [ -f "$cfg" ] || die "no crew.json at $cfg (use --crew)"
+  command -v jq >/dev/null || die "jq is required"
+  local project owner repos; project=$(jq -r .project "$cfg"); owner=$(jq -r .owner.login "$cfg")
+  repos=$(jq -r '[.repos.plan] + .repos.code | join(",")' "$cfg")
+  [ "${#roles[@]}" -gt 0 ] || while IFS= read -r r; do roles+=("$r"); done < <(jq -r '.roles | keys[]' "$cfg")
+  case "$sub" in
+    create)
+      command -v python3 >/dev/null || die "python3 is required"
+      local orgflag=(); [ "$org" = 1 ] && { owner=$(jq -r '.repos.plan | split("/")[0]' "$cfg"); orgflag=(--org); }
+      say "crew apps: roles=${roles[*]} owner=$owner$([ "$org" = 1 ] && echo " (organization)") keys stored in: $repos"
+      for r in "${roles[@]}"; do
+        if [ "$DRY" = 1 ]; then say "PLAN   create GitHub App ${project}-${r} (opens your browser; you click 'Create GitHub App'), then store AGENT_APP_KEY_ and AGENT_APP_ID_ for $r"; continue; fi
+        say "== role $r: a browser tab opens; click 'Create GitHub App' on github.com"
+        python3 "$HERE/lib/app_manifest.py" --project "$project" --role "$r" --owner "$owner" "${orgflag[@]}" --repos "$repos" || { say "FAIL   app for $r"; FAILED=1; }
+      done
+      say "NEXT   install each new App on: $repos (the INSTALL links above), then run: crew doctor $cfg"
+      [ "$FAILED" = 0 ] || exit 1 ;;
+    list)
+      local rp; for rp in $(jq -r '.repos.plan, .repos.code[]' "$cfg"); do
+        local sn vn; sn=$(gh secret list -R "$rp" --json name --jq '.[].name' 2>/dev/null); vn=$(gh variable list -R "$rp" --json name --jq '.[].name' 2>/dev/null)
+        for r in "${roles[@]}"; do
+          local sfx; sfx=$(tr 'a-z-' 'A-Z_' <<<"$r")
+          grep -qx "AGENT_APP_KEY_$sfx" <<<"$sn" && grep -qx "AGENT_APP_ID_$sfx" <<<"$vn" && say "OK     $rp: $r has an App key and id" || say "MISSING $rp: $r (AGENT_APP_KEY_$sfx / AGENT_APP_ID_$sfx)"
+        done
+      done ;;
+    *) die "usage: crew apps create|list [--crew crew.json] [--role R] [--org] [--plan]" ;;
+  esac
+}
+
 ok() { say "OK     $*"; }; warn() { say "WARN   $*"; W=$((W+1)); }; bad() { say "FAIL   $*"; B=$((B+1)); }
 cmd_doctor() {
   W=0; B=0
@@ -95,6 +132,13 @@ cmd_doctor() {
     gh api "repos/$r/contents/.github/workflows/crew-wake.yml" >/dev/null 2>&1 && ok "$r: wake caller installed" || warn "$r: crew-wake.yml not installed (merge the install PR)"
     local names; names=$(gh secret list -R "$r" --json name --jq '.[].name' 2>/dev/null)
     for s in CLAUDE_CODE_OAUTH_TOKEN CREW_REPO_TOKEN; do grep -qx "$s" <<<"$names" && ok "$r: secret $s set" || warn "$r: secret $s missing"; done
+    if grep -q '^AGENT_APP_KEY_' <<<"$names"; then
+      local vars role sfx; vars=$(gh variable list -R "$r" --json name --jq '.[].name' 2>/dev/null)
+      for role in $(jq -r '.roles | keys[]' "$cfg"); do
+        sfx=$(tr 'a-z-' 'A-Z_' <<<"$role")
+        grep -qx "AGENT_APP_KEY_$sfx" <<<"$names" && grep -qx "AGENT_APP_ID_$sfx" <<<"$vars" && ok "$r: role $role has an App key and id" || warn "$r: role $role has no App key/id (crew apps create --role $role)"
+      done
+    else ok "$r: no per-role Apps stored (solo identity)"; fi
   done
   for l in needs-rescue needs-owner needs-research needs-work debate harness-backlog; do
     gh api "repos/$plan/labels/$l" >/dev/null 2>&1 && ok "label $l" || warn "label $l missing in $plan"
@@ -105,7 +149,8 @@ cmd_doctor() {
 case "${1:-}" in
   init) shift; cmd_init "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;
+  apps) shift; cmd_apps "$@" ;;
   _install-callers) shift; cmd_install_callers "$@" ;;
-  ""|-h|--help|help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command: $1 (try: crew help)" ;;
 esac

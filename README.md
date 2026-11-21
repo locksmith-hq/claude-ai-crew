@@ -50,7 +50,7 @@ scripts/crew init --plan --project myapp --plan-repo me/myapp-plan --code-repo m
 # 2. Do it: creates the private plan repo and domain pack, the help labels, and a PR in each repo that
 #    installs the workflow callers. Secrets are printed as `gh secret set` steps and never handled by the tool.
 scripts/crew init --project myapp --plan-repo me/myapp-plan --code-repo me/myapp
-# 3. Set the secrets it lists, merge the install PRs, then check the wiring
+# 3. Set the secrets it lists, optionally create per-role GitHub Apps (scripts/crew apps create), merge the install PRs, then check the wiring
 scripts/crew doctor path/to/myapp-plan/crew.json
 ```
 
@@ -63,6 +63,7 @@ the trust model before giving agents any permissions.
 - [docs/concepts.md](docs/concepts.md): roles, channels, the run lifecycle, the trust model.
 - [docs/domain-pack.md](docs/domain-pack.md): what your project provides and the `crew.json` schema.
 - [docs/recipes/](docs/recipes): what we learned running this in practice (cloud sessions, routines, apps, merge policy, costs).
+- [docs/setup.md](docs/setup.md): the setup guide (or let the `crew-setup` skill do it).
 - [docs/runners.md](docs/runners.md): the two runners, the secrets each needs, and their limits.
 - [prompts/](prompts): generic role prompts and the shared rules.
 - [.claude/skills/](.claude/skills): the procedures agents load (run-start, run-log, finish-pr, evaluate-escalate, long-commands, debate, merge-review, archive-change).
@@ -72,7 +73,7 @@ the trust model before giving agents any permissions.
 ## Roadmap
 
 1. Done: prompts, recipes, domain-pack schema, skills, scripts with offline tests, reusable workflows, `crew init` and `crew doctor`.
-2. Next: GitHub App creation through the manifest flow (`crew apps`) and a `/crew-setup` skill so Claude can run setup for you.
+2. Done: `crew apps` (one GitHub App per role through the manifest flow, keys never leave your machine) and the `/crew-setup` skill so Claude can run setup for you. See [docs/setup.md](docs/setup.md).
 3. Then: the routines runner as a first-class option, an end-to-end demo repo and a `crew upgrade` command.
 4. Open: the OpenSpec skills are not bundled (separate upstream project); the plan format is OpenSpec-style by default.
 
