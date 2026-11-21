@@ -39,7 +39,10 @@ app_jwt() {
   local kv iv
   kv=$(crew_get ".roles[\"$role\"].key_env" "AGENT_APP_KEY_$rv"); iv=$(crew_get ".roles[\"$role\"].id_env" "AGENT_APP_ID_$rv")
   app="${!iv:-}"
-  # No id variable: the App id is public. Look it up by slug (GET /apps/<slug>) and cache it.
+  # The App id is public: crew.json can carry it (roles.<role>.app_id). Preferred: a cloud session shares an IP, so an
+  # unauthenticated lookup hits GitHub's rate limit, and a session proxy refuses the path (both observed).
+  [ -n "$app" ] || app=$(crew_get ".roles[\"$role\"].app_id")
+  # Last resort: look it up by slug (GET /apps/<slug>) and cache it.
   if [ -z "$app" ]; then
     [ -s "$state/appid-$role" ] && app=$(cat "$state/appid-$role")
     if [ -z "$app" ]; then
