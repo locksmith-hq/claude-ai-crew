@@ -47,11 +47,10 @@ them. Change the harness once and every project that uses it benefits.
 ```bash
 # 1. See what setup would do (changes nothing)
 scripts/crew init --plan --project myapp --plan-repo me/myapp-plan --code-repo me/myapp
-# 2. Do it. Creates the plan repo, domain pack and labels, opens the install PRs, then asks for two browser
-#    approvals: your Claude login and "Create GitHub App". Nothing is pasted; keys go straight into secrets.
+# 2. Do it, fully scripted: plan repo, domain pack, labels, install PRs, Claude credential (from your environment),
+#    repo access (from your gh login), then activation. No web page, nothing pasted.
+export CLAUDE_CODE_OAUTH_TOKEN=...   # or ANTHROPIC_API_KEY; without either, init falls back to a browser login
 scripts/crew init --project myapp --plan-repo me/myapp-plan --code-repo me/myapp
-# 3. Merge the install PRs, enable the schedules and check the wiring
-scripts/crew activate --crew path/to/myapp-plan/crew.json
 ```
 
 Pick a runner: **Actions** (default, works on any plan, scheduled GitHub workflows) or **routines** (Claude

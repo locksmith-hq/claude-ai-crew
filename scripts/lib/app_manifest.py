@@ -10,13 +10,12 @@ How it works (no server of ours is involved):
 
 Usage: app_manifest.py --project P --role R --owner ORG_OR_USER [--org] [--single] --repos plan/repo,code/repo
                        [--harness-url URL] [--port N] [--no-browser] [--timeout SECS]
-Env:   CREW_API_BASE (default https://api.github.com), CREW_GITHUB_BASE (default https://github.com): test hooks.
+Env:   CREW_GITHUB_BASE (default https://github.com): test hook for the page target.
 """
 import argparse, json, os, re, subprocess, sys, threading, urllib.request, webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
-API = os.environ.get("CREW_API_BASE", "https://api.github.com")
 WEB = os.environ.get("CREW_GITHUB_BASE", "https://github.com")
 
 # Minimal permissions per role kind. Nothing is granted that the role's prompt does not need.
@@ -45,10 +44,11 @@ def build_manifest(project, role, port, harness_url):
     }
 
 def convert(code):
-    req = urllib.request.Request(f"{API}/app-manifests/{code}/conversions", method="POST",
-                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "claude-ai-crew"}, data=b"")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+    """Trade the one-time manifest code for the app id and key. Goes through `gh` so TLS certificates are the
+    system's (python.org builds on macOS ship without a certificate bundle and fail urllib with CERTIFICATE_VERIFY_FAILED)."""
+    r = subprocess.run(["gh", "api", "-X", "POST", f"app-manifests/{code}/conversions"], capture_output=True, text=True)
+    if r.returncode: raise RuntimeError((r.stderr or "gh api failed").strip()[:200])
+    return json.loads(r.stdout)
 
 def gh(args, stdin=None):
     return subprocess.run(["gh"] + args, input=stdin, text=True, capture_output=True)

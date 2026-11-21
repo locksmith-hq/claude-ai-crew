@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # crew: set up and check a claude-ai-crew installation.
 #   crew init   [--plan] --project NAME --plan-repo ORG/NAME --code-repo ORG/NAME [--code-repo ...]
-#               [--runner actions|routines] [--identity single|roles|token] [--no-claude-login] [--harness-repo ORG/NAME] [--harness-ref REF]
+#               [--runner actions|routines] [--identity gh|app|roles|token] [--no-web] [--no-activate] [--harness-repo ORG/NAME] [--harness-ref REF]
 #   crew apps create [--crew path/to/crew.json] [--single | --role R ...] [--org] [--plan]   GitHub App(s) via the manifest flow
 #   crew activate [--crew path/to/crew.json] [--yes]   merge the install PRs, enable the schedules, run doctor
 #   crew apps list   [--crew path/to/crew.json]                                    which roles have an App key and id stored
 #   crew doctor [path/to/crew.json]
-# `init --plan` prints every action and changes nothing. No secret is ever pasted: the Claude token is fetched by
-# `claude setup-token` and the GitHub App key by the manifest flow; both are piped straight into `gh secret set`
-# and are never printed, logged or written to disk.
+# `init --plan` prints every action and changes nothing. Setup is fully scripted: no secret is pasted and no web page
+# is needed. Repo access comes from your `gh` login (identity=gh), the Claude token from the environment
+# (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY); both are piped straight into `gh secret set` and never printed.
+# Browser steps exist only as fallbacks (`claude setup-token`, GitHub Apps with identity=app|roles).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; HARNESS="$(cd "$HERE/.." && pwd)"
-DRY=0; PROJECT=""; PLAN=""; CODES=(); RUNNER=actions; IDENT=single; CLAUDE_LOGIN=1
+DRY=0; PROJECT=""; PLAN=""; CODES=(); RUNNER=actions; IDENT=gh; NOWEB=0; ACTIVATE=1
 HREPO="locksmith-hq/claude-ai-crew"; HREF=main
 say() { printf '%s\n' "$*"; }
 die() { echo "crew: $*" >&2; exit 2; }
@@ -23,11 +24,12 @@ LABELS="needs-rescue needs-owner needs-research needs-work debate harness-backlo
 cmd_init() {
   while [ $# -gt 0 ]; do case "$1" in
     --plan) DRY=1 ;; --project) PROJECT="$2"; shift ;; --plan-repo) PLAN="$2"; shift ;;
-    --code-repo) CODES+=("$2"); shift ;; --runner) RUNNER="$2"; shift ;; --identity) IDENT="$2"; shift ;; --no-claude-login) CLAUDE_LOGIN=0 ;;
+    --code-repo) CODES+=("$2"); shift ;; --runner) RUNNER="$2"; shift ;; --identity) IDENT="$2"; shift ;; --no-web) NOWEB=1 ;; --no-activate) ACTIVATE=0 ;;
     --harness-repo) HREPO="$2"; shift ;; --harness-ref) HREF="$2"; shift ;; *) die "unknown option: $1" ;; esac; shift; done
   [ -n "$PROJECT" ] && [ -n "$PLAN" ] && [ "${#CODES[@]}" -gt 0 ] || die "init needs --project, --plan-repo and at least one --code-repo"
   case "$RUNNER" in actions|routines) ;; *) die "--runner must be actions or routines" ;; esac
-  case "$IDENT" in single|roles|token) ;; *) die "--identity must be single, roles or token" ;; esac
+  [ "$IDENT" = single ] && IDENT=app
+  case "$IDENT" in gh|app|roles|token) ;; *) die "--identity must be gh, app, roles or token" ;; esac
   for r in "$PLAN" "${CODES[@]}"; do [[ "$r" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "not an owner/name repo: $r"; done
   command -v gh >/dev/null && command -v jq >/dev/null && command -v git >/dev/null || die "gh, jq and git are required"
   if [ "$DRY" = 1 ]; then owner="<your-login>"; else owner=$(gh api user --jq .login) || die "gh is not logged in"; fi
@@ -56,20 +58,22 @@ cmd_init() {
     act "open a PR in $r that installs the crew workflow callers for a code repo (wake, review; harness $HREPO@$HREF)" bash "$HERE/crew" _install-callers "$r" "$HREPO" "$HREF" "$RUNNER" "$work" "$DRY" "$PLAN" code
   done
   act "open a PR in $PLAN that installs the crew workflow callers for the plan repo (wake, change-sync, owner-alert, schedules; harness $HREPO@$HREF)" bash "$HERE/crew" _install-callers "$PLAN" "$HREPO" "$HREF" "$RUNNER" "$work" "$DRY" "$PLAN" plan
-  # 5. Claude login: the token is fetched by `claude setup-token` and piped into each repo's secret. Nothing is pasted.
+  # 5. Claude credentials: from the environment (no web), else `claude setup-token` (browser) unless --no-web.
   allrepos=$(IFS=,; echo "$PLAN,${CODES[*]}")
-  if [ "$CLAUDE_LOGIN" = 1 ]; then
-    act "log in to Claude (browser) and store CLAUDE_CODE_OAUTH_TOKEN in: ${allrepos}" python3 "$HERE/lib/claude_token.py" --repos "$allrepos"
-  else say "NEXT   claude login skipped: run: python3 scripts/lib/claude_token.py --repos $allrepos"; fi
-  # 6. repo access for the workflows: App installation tokens (one click) instead of a personal access token
+  nowebflag=(); [ "$NOWEB" = 1 ] && nowebflag=(--no-web)
+  act "store the Claude credential (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY from the environment; else a browser login) in: ${allrepos}" python3 "$HERE/lib/claude_token.py" --repos "$allrepos" ${nowebflag[@]+"${nowebflag[@]}"}
+  # 6. Repo access for the workflows
   case "$IDENT" in
-    single) act "create ONE GitHub App for the crew (browser: click 'Create GitHub App', then install it) and store CREW_APP_ID / CREW_APP_KEY" \
-              bash "$HERE/crew" apps create --crew "$work/plan/crew.json" --single ;;
+    gh)     act "store your gh login as CREW_REPO_TOKEN in: ${allrepos} (piped, never shown; agents then act as you)" bash "$HERE/crew" _store-repo-token $PLAN ${CODES[@]+"${CODES[@]}"} ;;
+    app)    act "create ONE GitHub App for the crew (two browser clicks: create, install) and store CREW_APP_ID / CREW_APP_KEY" bash "$HERE/crew" apps create --crew "$work/plan/crew.json" --single ;;
     roles)  act "create one GitHub App per role (browser clicks) and store the keys" bash "$HERE/crew" apps create --crew "$work/plan/crew.json" ;;
     token)  say "NEXT   identity=token: set CREW_REPO_TOKEN (a fine-grained token with contents, issues and pull requests on all the repos) in: $allrepos" ;;
   esac
   [ "$RUNNER" = routines ] && say "NEXT   routines runner: create one routine per role and store each fire token as the secret named in crew.json roles.*.secret"
-  say "NEXT   then run: crew activate --crew $work/plan/crew.json   (merges the install PRs, enables the schedules, runs doctor)"
+  if [ "$ACTIVATE" = 1 ]; then
+    if [ "$DRY" = 1 ]; then say "PLAN   activate: merge the install PRs once clean, enable the schedules, run doctor"
+    else say "== activate"; cmd_activate --crew "$work/plan/crew.json" --yes || FAILED=1; fi
+  else say "NEXT   then run: crew activate --crew $work/plan/crew.json   (merges the install PRs, enables the schedules, runs doctor)"; fi
   [ "$FAILED" = 0 ] || exit 1
 }
 
@@ -180,6 +184,19 @@ cmd_doctor() {
   say "doctor: $B fail, $W warn"; [ "$B" = 0 ]
 }
 
+# crew _store-repo-token <repo>...: pipe the gh login token into each repo's CREW_REPO_TOKEN secret (never printed)
+cmd_store_repo_token() {
+  local r scopes
+  scopes=$(gh auth status 2>&1 | grep -i "token scopes" | head -1)
+  if [ -n "$scopes" ] && ! grep -q "repo" <<<"$scopes"; then
+    say "         gh login lacks the 'repo' scope: running gh auth refresh -s repo (one-time device login)"
+    gh auth refresh -s repo || return 1
+  fi
+  for r in "$@"; do
+    gh auth token | gh secret set CREW_REPO_TOKEN -R "$r" >/dev/null && say "STORED CREW_REPO_TOKEN in $r" || { say "FAIL   could not store CREW_REPO_TOKEN in $r"; return 1; }
+  done
+}
+
 # crew activate: merge the install PRs, enable the schedules, run doctor
 cmd_activate() {
   local cfg="${CREW_CONFIG:-./crew.json}" yes=0
@@ -216,6 +233,7 @@ case "${1:-}" in
   doctor) shift; cmd_doctor "$@" ;;
   apps) shift; cmd_apps "$@" ;;
   activate) shift; cmd_activate "$@" ;;
+  _store-repo-token) shift; cmd_store_repo_token "$@" ;;
   _install-callers) shift; cmd_install_callers "$@" ;;
   ""|-h|--help|help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command: $1 (try: crew help)" ;;

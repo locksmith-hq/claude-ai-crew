@@ -69,24 +69,35 @@ def run_pty(argv):
     if m: token = m.group(0)
     return code, token
 
+def store_all(secret, value, repos):
+    failed = []
+    for repo in repos:
+        r = subprocess.run(["gh", "secret", "set", secret, "-R", repo], input=value, capture_output=True)
+        if r.returncode: failed.append(f"{repo}: {r.stderr.decode()[:100].strip()}")
+        else: print(f"STORED {secret} in {repo}", flush=True)
+    if failed: sys.exit("crew: failed to store the secret: " + "; ".join(failed))
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repos", required=True); ap.add_argument("--secret", default="CLAUDE_CODE_OAUTH_TOKEN")
+    ap.add_argument("--no-web", action="store_true", help="never start a browser login; fail if no token or key is in the environment")
     a = ap.parse_args()
     repos = [r for r in a.repos.split(",") if r]
+    # Non-web sources first: a token or an API key already in the environment (no browser, nothing pasted).
+    for env, secret in (("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"), ("ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY")):
+        val = os.environ.get(env, "").strip()
+        if val:
+            print(f"crew: using {env} from the environment (no login needed).", flush=True)
+            store_all(secret, val.encode(), repos); return
+    if a.no_web:
+        sys.exit("crew: no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in the environment and --no-web was given.")
     argv = shlex.split(os.environ.get("CREW_CLAUDE_CMD", "claude setup-token"))
     print("crew: running `%s`. Approve the login in your browser; the token is never shown." % " ".join(argv), flush=True)
     code, token = run_pty(argv)
     if code != 0 or not token:
         sys.exit("crew: could not get a token from `%s` (exit %s). Run `gh secret set %s -R <repo>` yourself, "
                  "or run `claude setup-token` and set the secret by hand." % (" ".join(argv), code, a.secret))
-    failed = []
-    for repo in repos:
-        r = subprocess.run(["gh", "secret", "set", a.secret, "-R", repo], input=token, capture_output=True)
-        if r.returncode: failed.append(f"{repo}: {r.stderr.decode()[:100].strip()}")
-        else: print(f"STORED {a.secret} in {repo}", flush=True)
-    token = None
-    if failed: sys.exit("crew: failed to store the secret: " + "; ".join(failed))
+    store_all(a.secret, token, repos)
 
 if __name__ == "__main__":
     main()

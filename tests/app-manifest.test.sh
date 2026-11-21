@@ -12,25 +12,21 @@ if [ "\$1 \$2" = "secret set" ]; then cat > "$KEYFILE"; fi
 exit 0
 GH
 chmod +x "$S/bin/gh"; export PATH="$S/bin:$PATH"
-# fake GitHub API: POST /app-manifests/<code>/conversions
-cat > "$S/api.py" <<'PY'
-import json, sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
-class H(BaseHTTPRequestHandler):
-    def log_message(self, *a): pass
-    def do_POST(self):
-        if "/app-manifests/good/conversions" in self.path:
-            body = json.dumps({"id": 4242, "slug": "demo-lead", "pem": "-----BEGIN " + "RSA PRIVATE" + " KEY-----\nFAKEKEYMATERIAL\n-----END " + "RSA PRIVATE" + " KEY-----\n"})
-            self.send_response(201); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body.encode())
-        else:
-            self.send_response(404); self.end_headers()
-srv = HTTPServer(("127.0.0.1", 0), H); print(srv.server_port, flush=True); srv.serve_forever()
-PY
-python3 "$S/api.py" > "$S/api.port" & APIPID=$!
-for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$S/api.port" ] && break; sleep 0.3; done
-API="http://127.0.0.1:$(cat "$S/api.port")"
+# `gh api -X POST app-manifests/<code>/conversions` is served by the stub (the real exchange also goes through gh)
+PEM=$(printf -- '-----BEGIN %s-----\\nFAKEKEYMATERIAL\\n-----END %s-----\\n' 'RSA PRIVATE KEY' 'RSA PRIVATE KEY')
+cat > "$S/bin/gh" <<GH
+#!/usr/bin/env bash
+echo "\$*" >> "$GHLOG"
+if [ "\$1 \$2" = "secret set" ]; then cat > "$KEYFILE"; fi
+if [ "\$1 \$2 \$3" = "api -X POST" ] && [ "\$4" = "app-manifests/good/conversions" ]; then
+  printf '{"id":4242,"slug":"demo-lead","pem":"%s"}' '$PEM'; exit 0
+fi
+if [ "\$1 \$2 \$3" = "api -X POST" ]; then echo "Not Found" >&2; exit 1; fi
+exit 0
+GH
+chmod +x "$S/bin/gh"
 PORT=$((20000 + RANDOM % 20000))
-CREW_API_BASE="$API" python3 "$APP" --project demo --role lead --owner acme --repos acme/plan,acme/app --port "$PORT" --no-browser --timeout 20 > "$S/out.txt" 2> "$S/err.txt" & APPPID=$!
+python3 "$APP" --project demo --role lead --owner acme --repos acme/plan,acme/app --port "$PORT" --no-browser --timeout 20 > "$S/out.txt" 2> "$S/err.txt" & APPPID=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do curl -fsS "http://127.0.0.1:$PORT/" -o "$S/page.html" 2>/dev/null && break; sleep 0.3; done
 grep -q 'settings/apps/new' "$S/page.html" && ok "page posts to GitHub's app creation URL" || no "page posts to GitHub's app creation URL"
 grep -q 'demo-lead' "$S/page.html" && ok "manifest names the app <project>-<role>" || no "manifest names the app <project>-<role>"
@@ -55,10 +51,10 @@ grep -q 'installations/new' "$S/out.txt" && ok "prints the install link" || no "
 python3 "$APP" --project demo --role "Bad Role" --owner acme --repos a/b --no-browser >/dev/null 2>&1 && no "invalid role name rejected" || ok "invalid role name rejected"
 # --single stores the shared-app names
 : > "$GHLOG"; PORT=$((20000 + RANDOM % 20000))
-CREW_API_BASE="$API" python3 "$APP" --project demo --role crew --single --owner acme --repos acme/plan --port "$PORT" --no-browser --timeout 20 > "$S/out2.txt" 2> "$S/err2.txt" & APPPID=$!
+python3 "$APP" --project demo --role crew --single --owner acme --repos acme/plan --port "$PORT" --no-browser --timeout 20 > "$S/out2.txt" 2> "$S/err2.txt" & APPPID=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do curl -fsS "http://127.0.0.1:$PORT/" -o "$S/page2.html" 2>/dev/null && break; sleep 0.3; done
 STATE=$(grep -oE 'state=[0-9a-f]+' "$S/page2.html" | head -1 | cut -d= -f2)
 curl -s -o /dev/null "http://127.0.0.1:$PORT/callback?code=good&state=$STATE"; wait "$APPPID"
 grep -q 'secret set CREW_APP_KEY -R acme/plan' "$GHLOG" && grep -q 'variable set CREW_APP_ID -R acme/plan --body 4242' "$GHLOG" && ok "--single stores CREW_APP_KEY and CREW_APP_ID" || no "--single stores CREW_APP_KEY and CREW_APP_ID"
-kill "$APIPID" 2>/dev/null; wait "$APIPID" 2>/dev/null; rm -rf "$S"
+rm -rf "$S"
 echo "app-manifest.test: $pass passed, $failn failed"; [ "$failn" = 0 ]

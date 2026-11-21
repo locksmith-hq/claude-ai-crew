@@ -7,23 +7,20 @@ for the parts only you can do. Prefer the terminal? Run the commands yourself.
 ## What you need
 `gh` (logged in), `git`, `jq`, `python3`, the `claude` CLI; a GitHub account or org; a Claude subscription.
 
-## Steps (nothing to paste)
+## Steps (fully scripted: no web page, nothing pasted)
 1. **Dry run:** `scripts/crew init --plan --project myapp --plan-repo me/myapp-plan --code-repo me/myapp`. Nothing changes.
-2. **Init:** the same command without `--plan`. It creates the private plan repo with `crew.json`, owner rules, lessons,
-   decisions and roadmap starters; the help-channel labels; one install PR per repo; then two short browser steps:
-   - **Claude login:** it runs `claude setup-token`, you approve the login in your browser, and the token goes straight
-     into each repo's secret. You never see or paste it.
-   - **GitHub App:** one shared App for the crew. Click **Create GitHub App** on github.com, then **Install** and choose the
-     repos. The key goes straight into a secret and the id into a variable; the workflows mint short-lived tokens from
-     them. (`--identity roles` makes one App per role; `--identity token` uses a personal access token you provide.)
-3. **Activate:** `scripts/crew activate --crew <plan>/crew.json`. It merges the install PRs once they are clean, enables
-   the schedules and runs the check. Add `--yes` to skip the prompt.
-4. **Verify any time:** `scripts/crew doctor <plan>/crew.json`.
+2. **Init:** the same command without `--plan`. It does everything:
+   - creates the private plan repo with `crew.json`, owner rules, lessons, decisions and roadmap starters, the help labels, and an install PR per repo;
+   - stores the **Claude credential** from your environment: `CLAUDE_CODE_OAUTH_TOKEN`, or `ANTHROPIC_API_KEY` (an API key instead of a subscription token). Export one first for a fully web-free run. If neither is set it falls back to `claude setup-token`, which opens a browser; pass `--no-web` to forbid that;
+   - stores **repo access** from your `gh` login: `gh auth token | gh secret set CREW_REPO_TOKEN`. It is piped, never shown. If your login lacks the `repo` scope it runs `gh auth refresh`;
+   - **activates**: merges the install PRs once clean, enables the schedules and runs the check. `--no-activate` leaves that for `crew activate`.
+3. **Verify any time:** `scripts/crew doctor <plan>/crew.json`.
 
-Schedules: with the Actions runner the schedule callers run on their cron (edit the cron lines to taste, avoid your busy
-hours). With routines, see [recipes/routines.md](recipes/routines.md).
+**Identity.** With `--identity gh` (the default) the workflows and agents act as you, using your login token, so comments carry a role marker. It is the only mode with no web step at all. The tradeoff: a long-lived token with your access sits in the repo secrets, so prefer a dedicated machine user or a GitHub App for a team: `--identity app` (one shared App) or `--identity roles` (one per role). GitHub only allows an App to be created and installed with a click on github.com, so those modes need the browser (the `crew-setup` skill can click for you).
 
-## How apps are created (and why it is safe)
+Schedules: with the Actions runner the schedule callers run on their cron (edit the cron lines to taste, avoid your busy hours). With routines, see [recipes/routines.md](recipes/routines.md).
+
+## GitHub Apps (optional)
 The App step uses GitHub's App manifest flow entirely on your machine: a local page posts the manifest to GitHub in your
 browser, GitHub redirects back to `http://127.0.0.1`, and the script trades the one-time code for the key. Nothing is
 sent to a server we run. Permissions are minimal per role (reviewer and research get less than workers); no webhooks, no events.

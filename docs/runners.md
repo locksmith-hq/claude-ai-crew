@@ -50,9 +50,9 @@ Every caller passes `secrets: inherit`, so the called workflow sees the caller r
 
 | Secret | Needed by | Notes |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Actions runner, review | Claude Code OAuth token for `claude-code-action`, fetched by `crew init` through `claude setup-token` (never pasted). Not needed for the routines runner alone. |
+| `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` | Actions runner, review | Claude credential for `claude-code-action`, stored by `crew init` from your environment (browser login `claude setup-token` only as a fallback). Not needed for the routines runner alone. |
 | `CREW_APP_ID` (variable) + `CREW_APP_KEY` (secret) | all workflows that read another repo | The crew GitHub App, created by `crew apps create --single` (or `crew init`). Workflows mint a short-lived installation token from it at run time. |
-| `CREW_REPO_TOKEN` | optional fallback | A fine-grained personal access token, only if you choose `--identity token`. |
+| `CREW_REPO_TOKEN` | default (`--identity gh`) | Your `gh` login token, piped in by `crew init`; or a fine-grained token with `--identity token`. |
 | One fire token per routine, named by `roles.<role>.secret` | wake.yml, routines runner only | Created in the web UI per routine. Exported as an env var by name; never printed. |
 | `AGENT_APP_KEY_<ROLE>` | optional, Actions runner | A role's GitHub App key so it posts under its own identity. Without it the run uses `CREW_REPO_TOKEN`. |
 | `GH_AUTOMATION_TOKEN` | optional, change-sync | Edits the org Project and code PR bodies. Without it change-sync writes labels only. |
