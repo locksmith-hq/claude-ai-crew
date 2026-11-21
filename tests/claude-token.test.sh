@@ -5,7 +5,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; TOK="$HERE/../scripts/lib/claude_token.py
 ok() { echo "ok   $1"; pass=$((pass+1)); }; no() { echo "FAIL $1"; failn=$((failn+1)); }
 command -v python3 >/dev/null || { echo "claude-token.test: python3 missing, skipped"; exit 0; }
 S=$(mktemp -d); mkdir -p "$S/bin"; LOG="$S/gh.log"; SEEN="$S/seen"; : > "$LOG"
-FAKE="sk-ant-oat01-$(printf 'A%.0s' $(seq 1 40))"
+FAKE="sk-ant-oat01-$(printf 'A%.0s' $(seq 1 95))"
+export CREW_VERIFY_CMD=true   # the real check runs `claude -p`; tests use a stub
 cat > "$S/claude-ok" <<EOS
 #!/usr/bin/env bash
 echo "Welcome to the fake Claude"; echo "Your OAuth token (valid for 1 year):"; echo "$FAKE"; echo "Store this token securely."
@@ -66,4 +67,17 @@ out=$(env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY CREW_CLAUDE_CMD="$S/cl
 [ "$rc" = 0 ] && [ ! -s "$SEEN" ] && grep -q "already set" <<<"$out" && ok "an existing secret skips the login and stores nothing" || no "an existing secret skips the login (rc=$rc): $out"
 : > "$SEEN"; out=$(STUB_HAVE_SECRET=CLAUDE_CODE_OAUTH_TOKEN env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY CREW_CLAUDE_CMD="$S/claude-ok" python3 "$TOK" --repos acme/plan --force 2>&1 </dev/null)
 grep -q "$FAKE" "$SEEN" && ok "--force replaces an existing secret" || no "--force replaces an existing secret"
+# a truncated capture is rejected (the real tool once interleaved URL text into the token)
+cat > "$S/claude-short" <<EOS
+#!/usr/bin/env bash
+echo "Your OAuth token (valid for 1 year):"; echo "sk-ant-oat01-$(printf 'C%.0s' $(seq 1 30))"
+EOS
+chmod +x "$S/claude-short"; : > "$SEEN"
+out=$(env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY CREW_CLAUDE_CMD="$S/claude-short" python3 "$TOK" --repos acme/plan 2>&1 </dev/null); rc=$?
+[ "$rc" != 0 ] && [ ! -s "$SEEN" ] && grep -q "too short" <<<"$out" && ok "a truncated token is rejected and not stored" || no "a truncated token is rejected (rc=$rc): $out"
+# a credential that fails the live check is never stored
+: > "$SEEN"; out=$(env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY CREW_VERIFY_CMD=false CREW_CLAUDE_CMD="$S/claude-ok" python3 "$TOK" --repos acme/plan 2>&1 </dev/null); rc=$?
+[ "$rc" != 0 ] && [ ! -s "$SEEN" ] && grep -q "does not work" <<<"$out" && ok "a login token that fails the check is not stored" || no "a login token that fails the check (rc=$rc): $out"
+: > "$SEEN"; out=$(env -u ANTHROPIC_API_KEY CREW_VERIFY_CMD=false CLAUDE_CODE_OAUTH_TOKEN="$FAKE" python3 "$TOK" --repos acme/plan 2>&1 </dev/null); rc=$?
+[ "$rc" != 0 ] && [ ! -s "$SEEN" ] && ok "an env token that fails the check is not stored" || no "an env token that fails the check (rc=$rc)"
 rm -rf "$S"; echo "claude-token.test: $pass passed, $failn failed"; [ "$failn" = 0 ]

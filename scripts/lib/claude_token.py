@@ -8,7 +8,7 @@ passed as an argument.
 
 Usage: claude_token.py --repos a/b,c/d [--secret NAME]
 """
-import argparse, os, pty, re, select, shlex, subprocess, sys
+import argparse, fcntl, os, pty, re, select, shlex, struct, subprocess, sys, termios
 
 TOKEN = re.compile(rb"sk-ant-[A-Za-z0-9_-]{20,}")
 
@@ -43,6 +43,10 @@ def run_pty(argv):
     pid, fd = pty.fork()
     if pid == 0:
         os.execvp(argv[0], argv)
+    # A very wide terminal: when the tool wraps a long line, its redraw mixes other text into the middle of a token
+    # (seen with `claude setup-token`: the login URL ended up inside the token and the capture stopped at the first '&').
+    try: fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 1000, 0, 0))
+    except OSError: pass
     buf = b""; token = None; state = {"partial": b"", "hiding": False}
     stdin_open = sys.stdin.isatty()
     while True:
@@ -77,6 +81,20 @@ def store_all(secret, value, repos):
         else: print(f"STORED {secret} in {repo}", flush=True)
     if failed: sys.exit("crew: failed to store the secret: " + "; ".join(failed))
 
+MIN_LEN = 90  # real tokens are about 100+ characters; a shorter match is a truncated capture
+
+def verify(token, secret):
+    """Check the credential really works before storing it. Uses `claude -p` (override with CREW_VERIFY_CMD).
+    Returns (ok, message). Skipped (ok) if the command is not installed."""
+    cmd = shlex.split(os.environ.get("CREW_VERIFY_CMD", "claude -p ok --max-turns 1"))
+    if subprocess.run(["sh", "-c", f"command -v {shlex.quote(cmd[0])} >/dev/null"]).returncode:
+        return True, "claude CLI not found: skipped the check"
+    env = dict(os.environ); env.pop("ANTHROPIC_API_KEY", None); env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+    env["ANTHROPIC_API_KEY" if secret == "ANTHROPIC_API_KEY" else "CLAUDE_CODE_OAUTH_TOKEN"] = token.decode()
+    try: r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=90, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired: return False, "the check timed out"
+    return (r.returncode == 0), ("ok" if r.returncode == 0 else (r.stderr or r.stdout).strip()[-160:])
+
 def already_set(secret, repos):
     """True when every repo already has a Claude credential (the secret, or the other kind), so a re-run needs no login."""
     for repo in repos:
@@ -97,6 +115,8 @@ def main():
         val = os.environ.get(env, "").strip()
         if val:
             print(f"crew: using {env} from the environment (no login needed).", flush=True)
+            ok, msg = verify(val.encode(), secret)
+            if not ok: sys.exit(f"crew: {env} from the environment does not work ({msg}); nothing was stored.")
             store_all(secret, val.encode(), repos); return
     if not a.force and already_set(a.secret, repos):
         print(f"crew: {a.secret} is already set in every repo; nothing to do (use --force to replace it).", flush=True); return
@@ -105,9 +125,14 @@ def main():
     argv = shlex.split(os.environ.get("CREW_CLAUDE_CMD", "claude setup-token"))
     print("crew: running `%s`. Approve the login in your browser; the token is never shown." % " ".join(argv), flush=True)
     code, token = run_pty(argv)
+    if token is not None and len(token) < MIN_LEN:
+        sys.exit("crew: the captured token is too short (%d characters), so it was truncated; nothing was stored. "
+                 "Run again, or export CLAUDE_CODE_OAUTH_TOKEN and re-run." % len(token))
     if code != 0 or not token:
         sys.exit("crew: could not get a token from `%s` (exit %s). Run `gh secret set %s -R <repo>` yourself, "
                  "or run `claude setup-token` and set the secret by hand." % (" ".join(argv), code, a.secret))
+    ok, msg = verify(token, a.secret)
+    if not ok: sys.exit(f"crew: the captured token does not work ({msg}); nothing was stored. Run again with --force, or export CLAUDE_CODE_OAUTH_TOKEN.")
     store_all(a.secret, token, repos)
 
 if __name__ == "__main__":
