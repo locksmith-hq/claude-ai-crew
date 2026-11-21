@@ -13,14 +13,12 @@ You run `scripts/crew` for the user and drive the browser for the clicks. Dry-ru
 - Create a GitHub App, repo or secret without the user's yes for that step.
 
 ## Steps
-1. **Gather.** Ask once: project name, plan repo (`owner/name`, private), code repo(s), runner (`actions` default, or `routines`), identity (`solo` default, or `apps`). Check `gh auth status` and that `jq`, `git` and `python3` exist.
-2. **Dry run.** `scripts/crew init --plan ...` (from the harness checkout). Show the plan in plain words and wait for a yes.
-3. **Init.** Run the same command without `--plan`. It creates the plan repo and domain pack, the labels, and an install PR in each repo. Report each `FAIL` line.
-4. **Run it.** `crew init` (no `--plan`) creates the repos' files, labels and install PRs, then runs `claude setup-token`: tell the user to approve the Claude login in their browser; the token goes straight into the secrets and is never shown. Do not ask for or accept a pasted token.
-5. **GitHub App.** `init` then runs `crew apps create --single`: a browser tab opens. If a browser tool is available, open the printed `OPEN` URL and stop at the page where GitHub shows **Create GitHub App**: the user clicks it. Then open the printed `INSTALL` link; the user chooses the repos and confirms.
-6. **Activate.** Show each install PR's files (only `.github/workflows/crew-*.yml`), ask, then `crew activate --crew <plan>/crew.json`: it merges them, enables the schedules and runs doctor.
-7. **Verify.** `crew doctor` runs inside activate; fix every `FAIL` and explain each `WARN` with its command.
-8. **Hand over.** Summarize what exists, what the user still must do (schedules to enable, first run), and where the docs are (`docs/setup.md`, `docs/runners.md`).
+1. **Gather.** Ask once: project name, plan repo (`owner/name`, private), code repo(s), runner (`actions` default, or `routines`), identity (`gh` default, no web; `app` or `roles` need GitHub clicks). Check `gh auth status` and that `jq`, `git`, `python3` exist. Ask whether `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` is exported in the terminal you will use.
+2. **Dry run.** `scripts/crew init --plan ...` (from the harness checkout). Explain the plan in plain words and wait for a yes.
+3. **Run it** in the user's Terminal panel (not in the background: the browser fallback needs a real terminal): `scripts/crew init ...`. It creates the repo files, labels and install PRs, stores the Claude credential and the repo-access token by pipe, merges the install PRs and enables the schedules. Report each `FAIL` line.
+4. **Fallbacks.** No Claude credential in the environment: the login opens a browser; the user approves it (and pastes the one-time code if asked). With `--identity app|roles`, GitHub shows **Create GitHub App** and **Install** pages: with the user's yes, drive them (open the printed `OPEN` URL, click create, then the `INSTALL` link; choose only the crew repos).
+5. **Verify.** `scripts/crew doctor <plan>/crew.json`: fix every `FAIL`; for each `WARN`, give the command that clears it.
+6. **Hand over.** Summarize what exists and where the docs are (`docs/setup.md`, `docs/runners.md`).
 
 ## Repair mode
 For a broken setup, start at step 7, fix what doctor flags, and re-run it. Confirm before re-running `init` on an existing plan repo.

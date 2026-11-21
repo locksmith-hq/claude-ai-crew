@@ -168,6 +168,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
             You are the independent merge reviewer for PR ${{ github.event.pull_request.number }} at head ${{ github.event.pull_request.head.sha }} of ${{ github.repository }}.
             Read the procedure in .crew/harness/prompts/reviewer.md (and .crew/harness/.claude/skills/merge-review/SKILL.md if present),
@@ -216,4 +217,5 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--max-turns 30"

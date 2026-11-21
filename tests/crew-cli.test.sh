@@ -4,11 +4,15 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; CREW="$HERE/../scripts/crew"; pass=0; failn=0
 ok() { echo "ok   $1"; pass=$((pass+1)); }; no() { echo "FAIL $1"; failn=$((failn+1)); }
 S=$(mktemp -d); mkdir -p "$S/bin"; LOG="$S/gh.log"; : > "$LOG"
+# a token-shaped fake built at runtime, so this file holds no token literal
+FAKETOK="gh""o_FAKELOGIN$(printf '0%.0s' $(seq 1 30))"; export FAKETOK
 cat > "$S/bin/gh" <<GH
 #!/usr/bin/env bash
 echo "\$*" >> "$LOG"
 case "\$1 \$2" in
-  "auth status") exit 0 ;;
+  "auth status") echo "  - Token scopes: 'gist', 'read:org', 'repo'"; exit 0 ;;
+  "auth token") echo "\$FAKETOK"; exit 0 ;;
+  "secret set") cat >> "$S/secret.seen"; exit 0 ;;
   "secret list") [ -n "\${STUB_NO_SECRETS:-}" ] || printf '[{"name":"CLAUDE_CODE_OAUTH_TOKEN"},{"name":"CREW_REPO_TOKEN"}]' | jq -r '.[].name'; exit 0 ;;
 esac
 case "\$1" in api) case "\$2" in repos/missing/*|repos/missing) exit 1 ;; users/acme) echo Organization ;; users/someone) echo User ;; *) echo '{}' ;; esac ;; esac
@@ -42,13 +46,20 @@ c=$(bash "$CREW" _install-callers acme/app h/r main actions /tmp 1 acme/plan cod
 [ "$c" = "         would add: crew-review.yml crew-wake.yml " ] && ok "code repo callers: wake and review only" || no "code repo callers: $c"
 grep -q "crew-schedule-worker.yml" <<<"$p" && ! grep -q "crew-review.yml" <<<"$p" && ok "plan repo callers: schedules, no review" || no "plan repo callers: $p"
 p=$(bash "$CREW" _install-callers acme/plan h/r main routines /tmp 1 acme/plan plan); ! grep -q "crew-schedule" <<<"$p" && ok "routines runner installs no schedule callers" || no "routines runner installs no schedule callers"
-# zero-paste flow
+# fully scripted flow
 out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app 2>&1)
-grep -q "log in to Claude (browser) and store CLAUDE_CODE_OAUTH_TOKEN in: acme/plan,acme/app" <<<"$out" && ok "init --plan: Claude login stores the token in every repo" || no "init --plan: Claude login stores the token in every repo"
-grep -q "create ONE GitHub App for the crew" <<<"$out" && ok "init --plan: default identity is one shared App" || no "init --plan: default identity is one shared App"
-if grep -qE "gh secret set|paste" <<<"$out"; then no "init --plan asks the user to paste nothing"; else ok "init --plan asks the user to paste nothing"; fi
+grep -q "store the Claude credential" <<<"$out" && grep -q "else a browser login" <<<"$out" && ok "init --plan: Claude credential comes from the environment first" || no "init --plan: Claude credential comes from the environment first"
+grep -q "store your gh login as CREW_REPO_TOKEN in: acme/plan,acme/app" <<<"$out" && ok "init --plan: default identity is the gh login (no web)" || no "init --plan: default identity is the gh login: $out"
+grep -q "PLAN   activate" <<<"$out" && ok "init --plan: activation is part of init" || no "init --plan: activation is part of init"
+if grep -qiE "browser click|paste|create ONE GitHub App" <<<"$out"; then no "default init needs no web step and no pasting"; else ok "default init needs no web step and no pasting"; fi
+out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --identity app 2>&1); grep -q "create ONE GitHub App" <<<"$out" && ok "identity=app is the opt-in shared App" || no "identity=app is the opt-in shared App"
+out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --identity single 2>&1); grep -q "create ONE GitHub App" <<<"$out" && ok "identity=single is an alias of app" || no "identity=single is an alias of app"
+out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --no-activate 2>&1); grep -q "NEXT   then run: crew activate" <<<"$out" && ok "--no-activate leaves activation for later" || no "--no-activate leaves activation for later"
+# the gh token is piped into each repo's secret and never shown
+: > "$S/secret.seen"; out=$(bash "$CREW" _store-repo-token acme/plan acme/app 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(grep -o "$FAKETOK" "$S/secret.seen" | wc -l | tr -d ' ')" = 2 ] && ok "gh token reaches gh secret set once per repo through stdin" || no "gh token reaches gh secret set (rc=$rc)"
+if grep -q "$FAKETOK" <<<"$out" || grep -q "$FAKETOK" "$LOG"; then no "the gh token is never printed or passed as an argument"; else ok "the gh token is never printed or passed as an argument"; fi
 out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --identity roles 2>&1); grep -q "one GitHub App per role" <<<"$out" && ok "identity=roles creates one App per role" || no "identity=roles creates one App per role"
-out=$(bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --no-claude-login 2>&1); grep -q "claude login skipped" <<<"$out" && ok "--no-claude-login skips the login" || no "--no-claude-login skips the login"
 bash "$CREW" init --plan --project demo --plan-repo acme/plan --code-repo acme/app --identity solo >/dev/null 2>&1 && no "old identity name rejected" || ok "old identity name rejected"
 out=$(bash "$CREW" apps create --crew "$P" --single --plan 2>&1); [ "$(grep -c '^PLAN   create GitHub App' <<<"$out")" = 1 ] && grep -q "example-crew" <<<"$out" && ok "apps create --single makes exactly one App" || no "apps create --single makes exactly one App: $out"
 out=$(bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "enable crew-schedule-worker in acme/plan" <<<"$out" && ok "activate enables the schedules when the Claude token exists" || no "activate enables the schedules: $out"
