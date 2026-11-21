@@ -1,0 +1,41 @@
+name: crew-owner-alert-reusable
+
+# Reusable: an agent's own GitHub App writes the @mention in the issue it opens, and GitHub notifies the owner.
+# Fallback only: a needs-owner issue authored by a human account (an agent that ran as the owner; GitHub never
+# notifies you about your own activity) gets github-actions[bot] to edit the body to start with the @mention, so
+# there is still one message. A re-label (the owner must act again) removes and re-adds the mention to re-alert.
+# The owner login comes from crew.json (.owner.login). Install the caller in the plan repo.
+on:
+  workflow_call:
+    inputs:
+      plan_repo:
+        description: Plan repo (owner/name) that holds crew.json
+        type: string
+        required: true
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  mention:
+    if: github.event.label.name == 'needs-owner' && github.event.issue.user.type != 'Bot'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.plan_repo }}
+          token: ${{ secrets.CREW_REPO_TOKEN || github.token }}
+          sparse-checkout: crew.json
+          sparse-checkout-cone-mode: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.issue.number }}
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          OWNER=$(jq -r '.owner.login' crew.json)
+          url="repos/${GITHUB_REPOSITORY}/issues/${NUMBER}"
+          plain="${BODY#"@${OWNER} "}"
+          if [ "$plain" != "$BODY" ]; then gh api -X PATCH "$url" -f body="$plain"; fi
+          gh api -X PATCH "$url" -f body="@${OWNER} ${plain}"

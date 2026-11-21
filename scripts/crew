@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# crew: set up and check a claude-ai-crew installation.
+#   crew init   [--plan] --project NAME --plan-repo ORG/NAME --code-repo ORG/NAME [--code-repo ...]
+#               [--runner actions|routines] [--identity solo|apps] [--harness-repo ORG/NAME] [--harness-ref REF]
+#   crew doctor [path/to/crew.json]
+# `init --plan` prints every action and changes nothing. Secrets are read silently and passed straight to
+# `gh secret set`; nothing secret is printed, logged or written to disk.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"; HARNESS="$(cd "$HERE/.." && pwd)"
+DRY=0; PROJECT=""; PLAN=""; CODES=(); RUNNER=actions; IDENT=solo
+HREPO="locksmith-hq/claude-ai-crew"; HREF=main
+say() { printf '%s\n' "$*"; }
+die() { echo "crew: $*" >&2; exit 2; }
+# act "<description>" cmd...: prints in --plan mode, otherwise runs and reports failure
+act() { local d="$1"; shift; if [ "$DRY" = 1 ]; then say "PLAN   $d"; else say "DO     $d"; "$@" || { say "FAIL   $d"; FAILED=1; }; fi; }
+FAILED=0
+LABELS="needs-rescue needs-owner needs-research needs-work debate harness-backlog in-progress review-passed review-failed"
+
+cmd_init() {
+  while [ $# -gt 0 ]; do case "$1" in
+    --plan) DRY=1 ;; --project) PROJECT="$2"; shift ;; --plan-repo) PLAN="$2"; shift ;;
+    --code-repo) CODES+=("$2"); shift ;; --runner) RUNNER="$2"; shift ;; --identity) IDENT="$2"; shift ;;
+    --harness-repo) HREPO="$2"; shift ;; --harness-ref) HREF="$2"; shift ;; *) die "unknown option: $1" ;; esac; shift; done
+  [ -n "$PROJECT" ] && [ -n "$PLAN" ] && [ "${#CODES[@]}" -gt 0 ] || die "init needs --project, --plan-repo and at least one --code-repo"
+  case "$RUNNER" in actions|routines) ;; *) die "--runner must be actions or routines" ;; esac
+  case "$IDENT" in solo|apps) ;; *) die "--identity must be solo or apps" ;; esac
+  for r in "$PLAN" "${CODES[@]}"; do [[ "$r" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "not an owner/name repo: $r"; done
+  command -v gh >/dev/null && command -v jq >/dev/null && command -v git >/dev/null || die "gh, jq and git are required"
+  if [ "$DRY" = 1 ]; then owner="<your-login>"; else owner=$(gh api user --jq .login) || die "gh is not logged in"; fi
+  work="${CREW_WORK_DIR:-$(mktemp -d)}"
+  say "crew init: project=$PROJECT plan=$PLAN code=${CODES[*]} runner=$RUNNER identity=$IDENT owner=$owner"
+
+  # 1. the plan repo
+  if [ "$DRY" = 1 ] || ! gh repo view "$PLAN" >/dev/null 2>&1; then act "create private repo $PLAN" gh repo create "$PLAN" --private --add-readme; fi
+  # 2. domain pack and starter files, committed to the plan repo's default branch
+  pack="$work/crew.json"
+  codes_json=$(printf '%s\n' "${CODES[@]}" | jq -R . | jq -s .)
+  jq --arg p "$PROJECT" --arg o "$owner" --arg plan "$PLAN" --arg h "$HREPO" --argjson c "$codes_json" \
+    '.project=$p | .owner.login=$o | .repos={harness:$h,plan:$plan,code:$c}' "$HARNESS/examples/domain-pack/crew.json" > "$pack" 2>/dev/null || true
+  [ "$DRY" = 1 ] && say "PLAN   write crew.json, owner.md, lessons.md, decisions.md, roadmap.md to $PLAN (skipped if present)" || {
+    bash "$HERE/validate-pack.sh" "$pack" >/dev/null || die "generated crew.json is invalid"
+    act "clone $PLAN and add the domain pack" bash -c "
+      git clone -q 'https://github.com/$PLAN.git' '$work/plan' && cd '$work/plan' &&
+      cp -n '$pack' crew.json && for f in owner lessons decisions roadmap; do cp -n '$HARNESS/templates/starter/'\$f.md \$f.md; done &&
+      git add -A && { git diff --cached --quiet || { git commit -q -m 'Add the claude-ai-crew domain pack' && git push -q; }; }"; }
+  # 3. labels (the help channels) in the plan repo
+  for l in $LABELS; do act "label '$l' in $PLAN" bash -c "gh api -X POST repos/$PLAN/labels -f name='$l' >/dev/null 2>&1 || true"; done
+  # 4. workflow callers in every repo that needs them
+  for r in "${CODES[@]}" "$PLAN"; do
+    act "open a PR in $r that installs the crew workflow callers (harness $HREPO@$HREF)" bash "$HERE/crew" _install-callers "$r" "$HREPO" "$HREF" "$RUNNER" "$work" "$DRY" "$PLAN"
+  done
+  # 5. secrets (names only here; values are read silently)
+  say "NEXT   secrets, set once per repo (the values are never shown):"
+  for r in "$PLAN" "${CODES[@]}"; do
+    say "         gh secret set CLAUDE_CODE_OAUTH_TOKEN -R $r   # from: claude setup-token"
+    say "         gh secret set CREW_REPO_TOKEN -R $r           # fine-grained token: contents, issues, pull requests on all the repos above"
+  done
+  [ "$RUNNER" = routines ] && say "NEXT   routines runner: create one routine per role and store each fire token as the secret named in crew.json roles.*.secret"
+  [ "$IDENT" = apps ] && say "NEXT   identity=apps: create one GitHub App per role (guided by the 'crew apps' step, coming in the next release)"
+  say "NEXT   then run: crew doctor $work/plan/crew.json"
+  [ "$FAILED" = 0 ] || exit 1
+}
+
+# crew _install-callers <repo> <harness-repo> <ref> <runner> <workdir> <dry> <plan-repo>
+cmd_install_callers() {
+  local repo="$1" hrepo="$2" href="$3" runner="$4" work="$5" dry="$6" plan="$7" d
+  [ "$dry" = 1 ] && { say "         would add: $(ls "$HARNESS/templates/callers" 2>/dev/null | tr '\n' ' ')"; return 0; }
+  d="$work/callers-$(echo "$repo" | tr / -)"
+  gh repo clone "$repo" "$d" -- -q >/dev/null 2>&1 || return 1
+  git -C "$d" checkout -q -b crew/install-workflows || return 1
+  mkdir -p "$d/.github/workflows"
+  for f in "$HARNESS"/templates/callers/*.yml; do
+    [ -f "$f" ] || continue
+    case "$(basename "$f")" in crew-schedule-*) [ "$runner" = actions ] || continue ;; esac
+    sed -e "s#<HARNESS_REPO>#$hrepo#g" -e "s#<HARNESS_REF>#$href#g" -e "s#<PLAN_REPO>#$plan#g" "$f" > "$d/.github/workflows/$(basename "$f")"
+  done
+  git -C "$d" add -A && git -C "$d" diff --cached --quiet && return 0
+  git -C "$d" commit -q -m "Install claude-ai-crew workflow callers" && git -C "$d" push -q -u origin crew/install-workflows &&
+    gh pr create -R "$repo" --head crew/install-workflows --title "Install claude-ai-crew workflow callers" \
+      --body "Adds thin caller workflows for the crew harness ($hrepo@$href). Review before merging." >/dev/null
+}
+
+ok() { say "OK     $*"; }; warn() { say "WARN   $*"; W=$((W+1)); }; bad() { say "FAIL   $*"; B=$((B+1)); }
+cmd_doctor() {
+  W=0; B=0
+  local cfg="${1:-${CREW_CONFIG:-./crew.json}}"
+  for t in gh jq git; do command -v "$t" >/dev/null && ok "$t installed" || bad "$t is not installed"; done
+  gh auth status >/dev/null 2>&1 && ok "gh is logged in" || bad "gh is not logged in (gh auth login)"
+  [ -f "$cfg" ] || { bad "no crew.json at $cfg"; say "doctor: $B fail, $W warn"; exit 1; }
+  bash "$HERE/validate-pack.sh" "$cfg" >/dev/null 2>&1 && ok "crew.json is valid" || bad "crew.json is invalid (run scripts/validate-pack.sh $cfg)"
+  local plan; plan=$(jq -r '.repos.plan' "$cfg"); local repos; repos=$(jq -r '.repos.plan, .repos.code[]' "$cfg")
+  local r l
+  for r in $repos; do
+    gh api "repos/$r" >/dev/null 2>&1 && ok "repo $r reachable" || { bad "repo $r not reachable"; continue; }
+    gh api "repos/$r/contents/.github/workflows/crew-wake.yml" >/dev/null 2>&1 && ok "$r: wake caller installed" || warn "$r: crew-wake.yml not installed (merge the install PR)"
+    local names; names=$(gh secret list -R "$r" --json name --jq '.[].name' 2>/dev/null)
+    for s in CLAUDE_CODE_OAUTH_TOKEN CREW_REPO_TOKEN; do grep -qx "$s" <<<"$names" && ok "$r: secret $s set" || warn "$r: secret $s missing"; done
+  done
+  for l in needs-rescue needs-owner needs-research needs-work debate harness-backlog; do
+    gh api "repos/$plan/labels/$l" >/dev/null 2>&1 && ok "label $l" || warn "label $l missing in $plan"
+  done
+  say "doctor: $B fail, $W warn"; [ "$B" = 0 ]
+}
+
+case "${1:-}" in
+  init) shift; cmd_init "$@" ;;
+  doctor) shift; cmd_doctor "$@" ;;
+  _install-callers) shift; cmd_install_callers "$@" ;;
+  ""|-h|--help|help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command: $1 (try: crew help)" ;;
+esac

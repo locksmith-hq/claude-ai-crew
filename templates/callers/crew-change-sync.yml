@@ -1,0 +1,30 @@
+# Installed by `crew init` in the PLAN repo. Keeps one issue per change in step with the plan.
+# Adjust `paths` to crew.json paths.changes and paths.roadmap.
+name: crew-change-sync
+
+on:
+  push:
+    branches: [main, "claude/change-*"]
+    paths: ["changes/**", "roadmap.md"]
+  issues:
+    types: [labeled, unlabeled, closed, reopened]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, closed, labeled, unlabeled]
+  workflow_dispatch:
+  schedule:
+    - cron: "15 3 * * *"   # daily: target-date forecasts move with the measured pace; off the :00 peak
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  sync:
+    uses: <HARNESS_REPO>/.github/workflows/change-sync.yml@<HARNESS_REF>
+    with:
+      harness_repo: <HARNESS_REPO>
+      harness_ref: <HARNESS_REF>
+    secrets: inherit

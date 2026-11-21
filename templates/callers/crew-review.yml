@@ -1,0 +1,27 @@
+# Installed by `crew init` in each CODE repo. Provides the `merge-ready` status: make it a required check on the
+# default branch. Needs the CLAUDE_CODE_OAUTH_TOKEN secret (and CREW_REPO_TOKEN when the plan repo is private).
+name: crew-review
+
+on:
+  pull_request:
+    types: [auto_merge_enabled, synchronize]
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    uses: <HARNESS_REPO>/.github/workflows/review.yml@<HARNESS_REF>
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      statuses: write
+      id-token: write
+      actions: read
+    with:
+      plan_repo: <PLAN_REPO>
+      harness_repo: <HARNESS_REPO>
+      harness_ref: <HARNESS_REF>
+    secrets: inherit
