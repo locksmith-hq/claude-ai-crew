@@ -77,9 +77,18 @@ def store_all(secret, value, repos):
         else: print(f"STORED {secret} in {repo}", flush=True)
     if failed: sys.exit("crew: failed to store the secret: " + "; ".join(failed))
 
+def already_set(secret, repos):
+    """True when every repo already has a Claude credential (the secret, or the other kind), so a re-run needs no login."""
+    for repo in repos:
+        r = subprocess.run(["gh", "secret", "list", "-R", repo, "--json", "name", "--jq", ".[].name"], capture_output=True, text=True)
+        have = set(r.stdout.split())
+        if r.returncode or not ({secret, "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"} & have): return False
+    return True
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repos", required=True); ap.add_argument("--secret", default="CLAUDE_CODE_OAUTH_TOKEN")
+    ap.add_argument("--force", action="store_true", help="store a new credential even if the secret already exists")
     ap.add_argument("--no-web", action="store_true", help="never start a browser login; fail if no token or key is in the environment")
     a = ap.parse_args()
     repos = [r for r in a.repos.split(",") if r]
@@ -89,6 +98,8 @@ def main():
         if val:
             print(f"crew: using {env} from the environment (no login needed).", flush=True)
             store_all(secret, val.encode(), repos); return
+    if not a.force and already_set(a.secret, repos):
+        print(f"crew: {a.secret} is already set in every repo; nothing to do (use --force to replace it).", flush=True); return
     if a.no_web:
         sys.exit("crew: no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in the environment and --no-web was given.")
     argv = shlex.split(os.environ.get("CREW_CLAUDE_CMD", "claude setup-token"))
