@@ -94,4 +94,12 @@ out=$(bash "$CREW" schedules --crew "$P" --runner routines 2>&1); grep -q "routi
 bash "$CREW" schedules --crew "$S/none.json" >/dev/null 2>&1 && no "crew schedules needs a crew.json" || ok "crew schedules needs a crew.json"
 out=$(bash "$CREW" doctor "$P" 2>&1); grep -q "schedule caller for worker-a installed" <<<"$out" && ok "doctor checks each role's schedule caller" || no "doctor checks each role's schedule caller"
 out=$(STUB_SCHEDULE_PR=1 bash "$CREW" activate --crew "$P" --yes 2>&1); grep -q "install PRs to merge: acme/plan#7" <<<"$out" && ok "activate also picks up a crew/schedules PR" || no "activate also picks up a crew/schedules PR: $out"
+# tokens sync: GitHub repo secrets by default, value never printed, nothing written on dry run
+echo '{"project":"demo","repos":{"plan":"acme/plan","code":["acme/app"]},"roles":{"lead":{"secret":"FIRE_LEAD"}}}' > "$S/tok.json"
+: > "$S/secret.seen"; out=$(FIRE_LEAD=sekrit-value-1 bash "$CREW" tokens sync --crew "$S/tok.json" 2>&1)
+grep -q "ok: 2 repo secrets set in 2 repos" <<<"$out" && ! grep -q sekrit-value-1 <<<"$out" && grep -q sekrit-value-1 "$S/secret.seen" && ok "tokens sync sets plan and code repo secrets without printing the value" || no "tokens sync: $out"
+: > "$S/secret.seen"; out=$(FIRE_LEAD=sekrit-value-1 bash "$CREW" tokens sync --crew "$S/tok.json" --dry-run 2>&1)
+grep -q "FIRE_LEAD: would set 2 repos" <<<"$out" && [ ! -s "$S/secret.seen" ] && ok "tokens sync --dry-run writes nothing" || no "tokens sync --dry-run: $out"
+FIRE_LEAD=x bash "$CREW" tokens sync --crew "$S/tok.json" --repo missing/repo >/dev/null 2>&1 && no "tokens sync preflight blocks an unwritable repo" || ok "tokens sync preflight blocks an unwritable repo"
+bash "$CREW" tokens sync --crew "$S/tok.json" --store nope >/dev/null 2>&1 && no "tokens sync rejects an unknown store" || ok "tokens sync rejects an unknown store"
 rm -rf "$S"; echo "crew-cli.test: $pass passed, $failn failed"; [ "$failn" = 0 ]

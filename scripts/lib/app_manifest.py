@@ -76,13 +76,20 @@ def main():
     ap.add_argument("--project", required=True); ap.add_argument("--role", required=True)
     ap.add_argument("--owner", required=True); ap.add_argument("--org", action="store_true")
     ap.add_argument("--repos", required=True); ap.add_argument("--port", type=int, default=0)
-    ap.add_argument("--harness-url", default="https://github.com/locksmith-hq/claude-ai-crew")
+    ap.add_argument("--harness-url", default=None, help="default: the origin of this harness checkout")
     ap.add_argument("--no-browser", action="store_true"); ap.add_argument("--timeout", type=int, default=600)
     ap.add_argument("--single", action="store_true",
                     help="one shared App for the whole crew: key in CREW_APP_KEY, id in CREW_APP_ID (workflows mint short-lived tokens from it)")
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9-]+", a.role) or not re.fullmatch(r"[A-Za-z0-9_.-]+", a.project):
         sys.exit("crew apps: project and role may only contain letters, digits, dashes, dots and underscores")
+    if not a.harness_url:
+        try:
+            a.harness_url = re.sub(r"\.git$", "", subprocess.run(["git", "-C", os.path.dirname(os.path.abspath(__file__)), "remote", "get-url", "origin"],
+                                   capture_output=True, text=True, check=True).stdout.strip())
+            a.harness_url = re.sub(r"^git@([^:]+):", r"https://\1/", a.harness_url)
+        except Exception: a.harness_url = ""
+        if not a.harness_url.startswith("http"): sys.exit("crew apps: cannot tell the harness URL (no git origin): pass --harness-url")
     repos = [r for r in a.repos.split(",") if r]
     state = os.urandom(8).hex(); result = {}; done = threading.Event()
     target = f"{WEB}/organizations/{a.owner}/settings/apps/new" if a.org else f"{WEB}/settings/apps/new"

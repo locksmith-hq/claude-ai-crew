@@ -1,5 +1,6 @@
 # Agents read prompts and skills from here, so every change needs the owner.
-* @tomer555
+# Set the owner for this repo, e.g. `* @your-org/owners` (`crew init` or the adopter sets it).
+# Until then no rule matches, so nothing requires a code-owner review.
 
 # Workers and the lead may change workflows outside the agent flow (last match wins).
 /.github/workflows/ci.yml
