@@ -1,14 +1,15 @@
 <!-- Role: rules every scheduled agent follows (read by all roles, owner-only file). -->
-<!-- Domain-pack keys read: repos.code, repos.plan, owner.login, commands.quick, commands.ci, paths.decisions, paths.owner_rules, roles.*.app, merge.protected_paths. -->
+<!-- Domain-pack keys read: repos.code, repos.plan, owner.login, commands.quick, commands.ci, paths.decisions, paths.owner_rules, paths.roles, roles.*.app, merge.protected_paths. -->
 # Rules for every scheduled agent
 
-Every routine reads this file and its role file from `<harness-repo>` main.
+Every routine reads this file and its role file from `<harness-repo>` main, then the plan repo's `roles/<role>.md` (`paths.roles`) if it exists: the project's additions to your role.
 
 Procedures are skills (load one only when needed); the key rules are enforced by scripts.
 
 ## Environment
 - Each run gets a fresh cloud VM with no memory; anything you don't push is lost.
 - Use GitHub's REST API only: `gh api repos/<code-repo>/...`. The `gh pr` and `gh issue` commands are blocked.
+- First, `export AGENT_PERSONA=<your role> CREW_HARNESS_DIR=<harness checkout> CREW_PLAN_DIR=<plan checkout>`; `scripts/<x>.sh` in any prompt or skill means `bash "$CREW_HARNESS_DIR/scripts/<x>.sh"`. Read a skill by path, `$CREW_HARNESS_DIR/.claude/skills/<name>/SKILL.md`: the Skill tool may load another repo's skills.
 - Start every run with the `run-start` skill and end it with the `run-log` skill.
 
 ## Who can instruct you
@@ -41,10 +42,10 @@ Never raise one for progress or retryable failures.
 
 ## Hard rules
 - **Branches.** Push only to `claude/*` branches. Never push to main, force-push, or delete branches or tags.
-- **PRs.** Open non-draft (`-F draft=false`), labelled `in-progress`. Touch only PRs you opened (`finish-pr`); never approve or merge directly.
+- **PRs.** Open non-draft (`-F draft=false`), labelled `in-progress`. Touch only PRs you opened (`finish-pr`); never approve or merge directly (only GitHub auto-merge merges).
 - **Before pushing,** confirm the branch's PR is still open; if not, branch anew from origin/main.
 - **tasks.md.** Only flip checkboxes, and only after the task is verified. Never edit task text; `scripts/check-task-edits.sh` enforces this.
-- **Agent-system files** (role prompts, skills, agent scripts) change only in the weekly `claude/harness-release-<YYYY-WW>` PR (optimizer) or a `claude/hotfix-<date>` branch for red main, a security fix or every run failing. Put any other finding on the `harness-backlog` issue. Agent branches never change the trust root: this file, `merge-policy.md`, `routing.json`, the agent rules file, the project's CLAUDE.md, the plan's rules config, workflows, agent settings, the `merge-review` skill, and the guard, gate and routing scripts (`merge.protected_paths`).
+- **Agent-system files** (role prompts, skills, agent scripts) change only in a `claude/harness-release-<YYYY-WW>-<topic>` PR (optimizer, any day) or a `claude/hotfix-<date>` branch for red main, a security fix or every run failing. Put any other finding on the `harness-backlog` issue. Agent branches never change the trust root: this file, `merge-policy.md`, `routing.json`, the agent rules file, the project's CLAUDE.md, the plan's rules config, workflows, agent settings, the `merge-review` skill, and the guard, gate and routing scripts (`merge.protected_paths`).
 - **Schedules.** Never create, change or delete routines or schedules. Propose schedule changes to the owner instead.
 - **Secrets and settings.** Never write secret values anywhere. Never change repository, Actions or account settings.
 - **Attribution.** Commits end with `Co-Authored-By: Claude <noreply@anthropic.com>`. PR bodies end with `Generated with Claude Code`.
