@@ -23,6 +23,8 @@ When the last task is ticked and verified, or a planning, archive or lead PR is 
 
 Never while a `needs-rescue` issue is open for that change.
 
+**Plan-repo PRs** (ticks, progress, plans, decisions in `$PLAN_REPO`): if `gh api repos/$PLAN_REPO --jq .allow_auto_merge` prints `false`, the plan repo's plan-merge workflow merges them (`prompts/merge-policy.md`). Do not run `gh pr merge --auto` there. Open the PR non-draft, carry on, and check it once later in the same run: merged, or a `plan-merge` comment you can fix (conflict, task-edit guard, secret scan), which you fix and push once. Otherwise leave it; never block on it or retry.
+
 ## Unblock your PRs
 Oldest first, at most 4 per run; one failure does not stop the others. Lock the change first (`bash "$CREW_HARNESS_DIR/scripts/run-lock.sh" acquire <you> <id>`; busy: move on) and release it after.
 - **`merge-ready` failure, review FAIL (`review-failed` label):** fix the findings with `evaluate-escalate`, resolve their threads, push once. The push reruns the review.

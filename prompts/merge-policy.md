@@ -15,4 +15,5 @@ PRs merge themselves through GitHub auto-merge. There is no merge workflow, gate
 - Merges always use a merge commit, so `git revert -m 1 <sha>` undoes any of them.
 - If main CI goes red after a merge, fixing it comes before any other work.
 - Admins bypass the ruleset; only the owner is an admin.
+- **Plan repo without native auto-merge** (a private repo on a free plan has no rulesets or auto-merge: `gh api repos/$PLAN_REPO --jq .allow_auto_merge` prints `false`): a plan-merge workflow in the plan repo merges agent PRs once its rules pass (`docs/recipes/plan-repo-merge.md`). Agents never run `gh pr merge --auto` there and never retry or re-push to make it merge; open the PR non-draft and check it once more later in the same run without waiting on it. A PR it does not merge stays open with a reason in the run summary, and a comment only when the author can fix it (conflict, task-edit guard, failed secret scan).
 - This file, `.github/CODEOWNERS`, the `merge-review` skill and the workflows change only in owner sessions, or through a lead PR that the owner approves.

@@ -48,7 +48,7 @@ Every run is a fresh VM with no memory. Anything not pushed is lost.
 ## Merging
 PRs merge themselves through GitHub auto-merge once required checks pass and an independent AI review has
 set a commit status. Merges use merge commits so any change can be reverted with one command. Paths in the
-trust root need the owner's approval. See [docs/recipes/auto-merge-and-review.md](recipes/auto-merge-and-review.md).
+trust root need the owner's approval. See [docs/recipes/auto-merge-and-review.md](recipes/auto-merge-and-review.md); a private plan repo without auto-merge uses [docs/recipes/plan-repo-merge.md](recipes/plan-repo-merge.md).
 
 ## Plan, code and harness are separate
 | Repo | Holds | Visibility |
