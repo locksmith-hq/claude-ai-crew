@@ -182,7 +182,7 @@ your plan repo, plus the rules and plan files it points at. The harness never ha
 | `roles.<role>.batched` | Optional, `true` for expensive roles: only an owner tag wakes them at once; other wakes label the issue `wake-<role>` and the wake workflow's tick (a `workflow_dispatch` every 2 h) fires the role once for its queue |
 | `dispatch` | Optional: workers fired by an external dispatcher instead of events. `workers` lists them (the wake workflow then fires them only for an owner tag); `slots`, `max_5h`, `max_day`, `run_minutes` are its budget, read by the dispatcher and the PM |
 | `paths.roles` | Optional folder (default `roles/`) of project additions to a role prompt: `<role>.md` is read after the harness role file |
-| `channels` | Who may open which help channel and who is woken (same shape the routing script reads) |
+| `channels` | Who may open which help channel and who is woken (same shape the routing script reads). `to` is one role or a list of roles, each woken once (for example `"needs-work": {"to": ["pm", "lead"]}`) |
 | `default_worker` | The worker woken when nothing names one (for example the owner's own PR); red main CI wakes the lead |
 | `trust_root` | Paths that agents may never change on their own branches |
 | `agent_system` | Paths that change only in the periodic harness-release PR or a hotfix |

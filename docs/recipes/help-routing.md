@@ -15,7 +15,7 @@ Agents ask for help only through labelled GitHub issues, along fixed channels th
 | `needs-rescue` | worker | lead | the worker that opened it |
 | `needs-owner` | lead | the owner (alert) | a worker |
 | `needs-research` | any role | research | the role that asked |
-| `needs-work` | an idle worker | PM | the role that asked |
+| `needs-work` | an idle worker | PM and lead | the role that asked |
 | `debate` | PM or lead | the other side | per debate rules |
 | `harness-backlog` | optimizer, any role | none (a pinned issue) | n/a |
 

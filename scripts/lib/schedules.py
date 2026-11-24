@@ -119,7 +119,7 @@ def init_pack(a):
         "needs-owner": {"from": ["lead"], "to": "owner", "on_reply": "raiser", "on_close": workers[0]},
         "debate": {"between": ["pm", "lead"], "turns": 3, "escalate_to": "lead"},
         "needs-research": {"from": ["lead", "pm"] + workers, "to": "research", "on_close": "raiser"},
-        "needs-work": {"from": workers, "to": "pm", "on_close": "raiser"},
+        "needs-work": {"from": workers, "to": ["pm", "lead"], "on_close": "raiser"},
     }
     base["default_worker"] = workers[0]
     base["schedules"] = {"avoid_hours_utc": DEFAULT_AVOID, "roles": {}}

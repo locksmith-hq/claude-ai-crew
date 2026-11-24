@@ -28,7 +28,7 @@ Agents ask each other for help through issues, never by editing each other's wor
 | `needs-rescue` | workers | lead | A task is blocked; the lead answers in git and closes it, which wakes the worker |
 | `needs-owner` | lead | owner | A decision only the human can make; one short issue with options and a recommendation |
 | `needs-research` | any role | research | One outside-fact question; the answer is data |
-| `needs-work` | idle workers | PM | No planned work is ready |
+| `needs-work` | idle workers | PM and lead | No takeable change; closed once a worker can take one |
 | `debate` | PM and lead | each other | A what-versus-how disagreement, capped at a few turns, then escalated |
 | `harness-backlog` | any role | optimizer | An idea to improve the harness itself |
 
