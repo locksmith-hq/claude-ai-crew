@@ -18,6 +18,12 @@ for the parts only you can do. Prefer the terminal? Run the commands yourself.
 
 **Identity.** With `--identity gh` (the default) the workflows and agents act as you, using your login token, so comments carry a role marker. It is the only mode with no web step at all. The tradeoff: a long-lived token with your access sits in the repo secrets, so prefer a dedicated machine user or a GitHub App for a team: `--identity app` (one shared App) or `--identity roles` (one per role). GitHub only allows an App to be created and installed with a click on github.com, so those modes need the browser (the `crew-setup` skill can click for you).
 
+## What lives where (any org)
+- **This harness** (`claude-ai-crew`): scripts, workflows, prompts and `crew.defaults.json`. Nothing org-specific. Fork or use as is.
+- **Your plan repo**: one `crew.json` with only your overrides (owner login, plan and code repos, each role's `name`, secret names, `batched`, checklist, paths). Persona handles derive from `name`: `@<project>-<name>` and `@<org>/<name>` (for example a role named "Iron Man" answers to `@acme-iron-man`).
+- **Each repo (plan and code)**: one caller, `templates/callers/crew-wake.yml`, with `plan_repo` set. Pin the harness to a release tag (`@v1`, a moving major tag) instead of a sha, so a harness fix reaches every repo without per-repo bump PRs.
+- **Secrets**: the roles' fire tokens in every repo that has a caller, set in one step with `crew tokens sync`.
+
 ## Fire tokens (routines runner)
 
 `crew tokens sync [--crew crew.json] [--dry-run]` sets every role's fire token (`roles.<role>.secret`) as a repo secret in the plan and code repos (`--repo ORG/NAME` adds more), all or nothing: it gathers every value (env var of the same name, else a silent prompt), checks every repo accepts writes, writes, and rolls back on any failure. Values are never printed. For AWS SSM as the source of truth use `--store ssm --ssm-prefix /crew/<project> --region <r>`; nothing assumes AWS by default.
