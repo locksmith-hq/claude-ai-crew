@@ -52,6 +52,10 @@ git -C "$W/plan" checkout -q main; rm -f "$W/meta.env"
 jq '.roles.lead.key_env="OLDKEY_LEAD" | .roles.lead.id_env="OLDID_LEAD"' "$W/plan/crew.json" > "$W/crew4.json"
 out=$(E env CREW_CONFIG="$W/crew4.json" AGENT_API_URL=http://127.0.0.1:9 OLDKEY_LEAD=xx bash "$S/agent-identity.sh" setup lead 2>&1); rc=$?
 grep -q "OLDID_LEAD is not set" <<<"$out" && ok "crew.json key_env/id_env name the variables" || no "crew.json key_env/id_env name the variables: rc=$rc $out"
+# key_env names a variable this environment lacks, but AGENT_APP_KEY_<ROLE> is set: the role name wins
+kv() { E env CREW_CONFIG="$W/crew4.json" "$@" bash "$S/agent-identity.sh" keyvar lead; }
+[ "$(kv AGENT_APP_KEY_LEAD=x)" = AGENT_APP_KEY_LEAD ] && [ "$(kv OLDKEY_LEAD=y AGENT_APP_KEY_LEAD=x)" = OLDKEY_LEAD ] && [ "$(kv)" = OLDKEY_LEAD ] &&
+  ok "keyvar: key_env when set, else AGENT_APP_KEY_<ROLE>" || no "keyvar: $(kv AGENT_APP_KEY_LEAD=x) $(kv)"
 cat > "$W/appsrv.py" <<'PYS'
 import json, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer

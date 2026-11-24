@@ -37,6 +37,9 @@ append_only=("$PATH_OWNER_RULES" "$PATH_DECISIONS")
 exempt() { grep -vxF -e "$PATH_OWNER_RULES" -e "$PATH_DECISIONS" || true; }
 
 protected_fail=0
+# Append-only files: no line of the base version is removed or changed. New lines may sit anywhere, so a
+# `merge=union` merge (.gitattributes) of two branches that both appended still passes.
+kept() { ! grep -q '^<' <(diff <(git show "$1") "$2"); }   # <rev:path> <file>
 if git rev-parse -q --verify origin/main >/dev/null; then
   ob=$(git merge-base HEAD origin/main)
   if [ ${#harness[@]} -gt 0 ]; then
@@ -53,8 +56,7 @@ if git rev-parse -q --verify origin/main >/dev/null; then
     # Append-only files: agents may add new lines, never edit existing ones.
     for f in "${append_only[@]}"; do
       if git cat-file -e "$ob:$f" 2>/dev/null; then
-        old=$(git show "$ob:$f" | wc -c)
-        { [ -f "$f" ] && cmp -s -n "$old" <(git show "$ob:$f") "$f"; } || { echo "task-edit guard: $f is append-only for agents"; protected_fail=1; }
+        { [ -f "$f" ] && kept "$ob:$f" "$f"; } || { echo "task-edit guard: $f is append-only for agents"; protected_fail=1; }
       fi
     done
     if [ ${#trust[@]} -gt 0 ]; then
@@ -97,11 +99,11 @@ while IFS= read -r f; do
   fi
 done < <(git diff --name-only "$base" -- "$CH/*/tasks.md")
 
-# progress.md is append-only: the base version must remain an exact prefix.
+# progress.md is append-only: every earlier line stays, unchanged and in order.
 while IFS= read -r f; do
   git cat-file -e "$base:$f" 2>/dev/null || continue
-  old=$(git show "$base:$f" | wc -c); cur=$(current "$f")
-  if [ -z "$cur" ] || ! cmp -s -n "$old" <(git show "$base:$f") "$cur"; then
+  cur=$(current "$f")
+  if [ -z "$cur" ] || ! kept "$base:$f" "$cur"; then
     echo "task-edit guard: $f is append-only, but earlier entries changed"; fail=1
   fi
 done < <(git diff --name-only "$base" -- "$CH/*/progress.md")

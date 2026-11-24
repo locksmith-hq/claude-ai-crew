@@ -66,3 +66,6 @@ crew_plan_git() { git -C "$CREW_PLAN_DIR" "$@"; }
 crew_code_git() { git -C "$CREW_CODE_DIR" "$@"; }
 # crew_role_login <role>: the GitHub login of a role's App bot ("<app>[bot]"), empty if undefined
 crew_role_login() { local a; a=$(crew_get ".roles[\"$1\"].app"); [ -n "$a" ] && echo "${a}[bot]"; }
+# crew_role_logins <role>: every login of a role, one per line: "<app>[bot]" first, then roles.<role>.logins (old
+# logins kept after an App rename, so earlier PRs and comments still map to the role)
+crew_role_logins() { jq -r --arg r "$1" '.roles[$r] // {} | ((if .app then .app + "[bot]" else empty end), (.logins // [])[])' "$CREW_CONFIG" | awk 'NF && !seen[$0]++'; }

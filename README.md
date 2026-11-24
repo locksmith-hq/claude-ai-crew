@@ -19,6 +19,7 @@ supplies a small **domain pack** (a config file plus your own rules and plan); t
 | **Research** | The only role with open internet; answers one-question research issues |
 | **Reviewer** | Independent review of a PR before it can merge |
 | **Health** | Watches runs, CI and drift |
+| **Summary** | Updates the owner's plain-language dashboard twice a day (read-only) |
 | **Optimizer** | Audits schedules, token use and the harness itself; proposes improvements weekly |
 
 Agents talk through **labelled GitHub issues** (`needs-rescue`, `needs-owner`, `needs-research`,

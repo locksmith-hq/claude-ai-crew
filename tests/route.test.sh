@@ -20,7 +20,7 @@ ev 'lead\tneeds-rescue #5 opened' issues '{"action":"labeled","label":{"name":"n
 ev 'lead\towner replied on needs-owner #7' issue_comment '{"issue":{"number":7,"labels":[{"name":"needs-owner"}]},"comment":{"user":{"login":"'"$OWN"'"},"body":"ok"}}'
 ev 'lead\towner tagged you on #7: u' issue_comment '{"issue":{"number":7,"labels":[]},"comment":{"html_url":"u","user":{"login":"'"$OWN"'"},"body":"@example-lead look"}}'
 ev '' issue_comment '{"issue":{"number":7,"labels":[]},"comment":{"user":{"login":"stranger"},"body":"@example-lead look"}}'
-ev 'worker-a\tCI failed on main' workflow_run '{"workflow_run":{"name":"ci","conclusion":"failure","head_branch":"main","event":"push","pull_requests":[]}}'
+ev 'lead\tCI failed on main' workflow_run '{"workflow_run":{"name":"ci","conclusion":"failure","head_branch":"main","event":"push","pull_requests":[]}}'
 
 # fire without a token: warns and exits 0 instead of calling the network
 out=$(run bash "$R" fire lead "test" 2>&1); rc=$?

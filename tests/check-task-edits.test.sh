@@ -56,6 +56,8 @@ git switch -qc claude/change-o1; printf -- '- d2\n' >> owner.md; git add -A
 expect 0 claude/change-o1 "agent may append to the owner rules (though listed in trust_root)"
 printf -- '- changed\n- d2\n' > owner.md; git add -A
 expect 1 claude/change-o1 "agent may not rewrite the owner rules"
+printf -- '- d0\n- d1\n- d2\n' > owner.md; git add -A
+expect 0 claude/change-o1 "a union merge may put new owner-rules lines before main's newest"
 printf -- '- d1\n' > owner.md; printf -- '- m2\n' > decisions.md; git add -A
 expect 1 claude/change-o1 "agent may not rewrite the decisions file"
 git checkout -q -f main; git update-ref refs/remotes/origin/main HEAD; git switch -qc claude/change-c1c

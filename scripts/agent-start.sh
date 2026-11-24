@@ -41,9 +41,9 @@ while IFS= read -r d; do
 done < <(checkouts)
 echo "== preflight"
 bash "$here/agent-preflight.sh"; pf=$?
-persona="${2:-${AGENT_PERSONA:-}}"; var="AGENT_APP_KEY_$(tr '[:lower:]-' '[:upper:]_' <<<"$persona")"
-# a project may name its key variable per role in crew.json (roles.<role>.key_env)
-[ -n "$persona" ] && var=$(crew_get ".roles[\"$persona\"].key_env" "$var")
+persona="${2:-${AGENT_PERSONA:-}}"; var=AGENT_APP_KEY_
+# a project may name its key variable per role in crew.json (roles.<role>.key_env); AGENT_APP_KEY_<ROLE> also works
+[ -n "$persona" ] && var=$(bash "$here/agent-identity.sh" keyvar "$persona")
 echo "== identity"
 if [ -n "$persona" ] && [ -n "${!var:-}" ]; then
   # A key is set, so a run must never fall back to the owner: setup undoes itself and prints FAIL on any error.
