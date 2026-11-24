@@ -35,7 +35,7 @@ EOB
 It prints one complete fenced block: don't wrap it. Take subagent numbers from each Agent result's usage; never guess (`unknown`). Never put secrets in it.
 
 ## 3. agent-log comment
-Post one comment on the open issue labelled `agent-log` in `<plan-repo>`: first the line `<!-- agent -->`, then 1-3 lines of summary, then the activity list below, then the block.
+Post one comment on the open issue labelled `agent-log` in `<plan-repo>`: first the line `<!-- agent -->`, then the line `<!-- role: $AGENT_PERSONA -->` (the dispatcher releases that worker's lease from it; without it the run end is ignored and the worker stays busy for 2 hours), then 1-3 lines of summary, then the activity list below, then the block.
 
 Every run posts one, idle runs included. The activity list records everything this run changed, one line each with a link, and `none` for an empty heading:
 ```
@@ -45,4 +45,4 @@ Every run posts one, idle runs included. The activity list records everything th
 - PRs: <link> opened|pushed|labelled <label>|merged|closed: <why>
 - Issues: <link> opened|edited|retitled|labelled|closed: <what>
 ```
-Track these as you go. If all agents post as the owner account, GitHub cannot tell your actions from another run's. Every comment you post anywhere starts with `<!-- agent -->`. Use `gh api repos/$PLAN_REPO/issues/<n>/comments -f body=...`, because `gh issue` may be blocked in cloud runs.
+Track these as you go. If all agents post as the owner account, GitHub cannot tell your actions from another run's. Every comment you post anywhere starts with `<!-- agent -->`. Run `gh` from inside the plan checkout (`cd "$CREW_PLAN_DIR"`): the App shim only covers the plan and code checkouts, so from the harness checkout the comment is posted as the owner. Use `gh api repos/$PLAN_REPO/issues/<n>/comments -f body=...`, because `gh issue` may be blocked in cloud runs.
