@@ -15,6 +15,11 @@ missing=$(jq -r '. as $c | [ ($c.channels[]|(.from//[])[], (.between//[])[], (.e
   | map(select(. != null and . != "owner" and . != "raiser")) | unique[] | select(. as $r | $c.roles|has($r)|not)' "$f")
 [ -z "$missing" ] || bad "roles used but not defined: $(echo "$missing" | tr '\n' ' ')"
 jq -e '[.roles[]|.secret]|all(test("^[A-Z][A-Z0-9_]*$"))' "$f" >/dev/null || bad "roles.*.secret must be an environment variable NAME, never a token"
+if jq -e '.review.tiers' "$f" >/dev/null; then
+  jq -e '.review.default_tier as $d | [.review.tiers[].name] | index($d) != null' "$f" >/dev/null || bad "review.default_tier must name one of review.tiers"
+  jq -e '[.review.tiers[] | (.name|test("^[A-Za-z0-9_.-]+$")) and (.model|test("^[A-Za-z0-9][A-Za-z0-9._:-]*$")) and ((.paths // [])|type=="array")]|all' "$f" >/dev/null \
+    || bad "review.tiers: each needs a plain name, a model id and a paths list"
+fi
 grep -qE 'sk-ant-|gh[pousr]_[A-Za-z0-9]{20,}' "$f" && bad "a token-looking value is in $f"
 [ "$fail" = 0 ] && echo "validate-pack: OK"
 exit "$fail"
