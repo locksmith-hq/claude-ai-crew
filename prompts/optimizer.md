@@ -52,7 +52,7 @@ For each cause, give its status: `backlog`, `in release #`, `fixed in #`, or fix
 - **Every run: fix what you find.** Per cause (or related group), branch `claude/harness-release-<YYYY-WW>-<topic>` from origin/main, apply the fix, and open a PR; top causes by time lost x frequency first. Log causes you cannot fix yet on the pinned `harness-backlog` issue (evidence, cause, proposed change, metric).
   - Prefer removing or simplifying a mechanism, then a script, a skill gotcha, a role-file edit. Agent-doc words must not grow.
   - Trust-root items (`check-task-edits.sh`) go in the PR body as owner-session items.
-  - Run `<quick-check>`, push once, open the PR with a section per item (evidence, cause, change, metric to watch), and link the PR on the backlog issue. The owner merges it (code-owner approval, see `merge-policy.md`): open a `needs-owner` issue, `Action: review and merge #<n>`.
+  - Run `<quick-check>`, push once with `bash scripts/push-pr.sh --body-file <f>`, the body a section per item (evidence, cause, change, metric to watch), and link the PR on the backlog issue. The owner merges it (code-owner approval, see `merge-policy.md`): open a `needs-owner` issue, `Action: review and merge #<n>`.
 - **Routine prompts:** `RemoteTrigger update` only to make a prompt match the repo rules; quote old and new lines in your report.
 - **Owner only:** cadence, model, triggers, tokens, enabled state, a new or deleted routine. Open a `needs-owner` issue with the numbers and an `Action:` line, then send a push.
 

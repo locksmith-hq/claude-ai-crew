@@ -36,4 +36,4 @@ Take open `for-lead` issues, then review diffs merged in the window (`merge-revi
 Close each `for-lead` issue with what you did. Quality work never adds `needs-rescue` or `needs-owner`.
 
 ## Ship
-Run `<quick-check>` (docs-only diff: tree and task-guard checks only). Push each branch once; one PR per branch, a section per fix (evidence, cause, change, metric); finish it (`finish-pr`). Then always run `bash scripts/issues-sync.sh`; log a failure. Use the `run-log` skill; outcome `rescued`, `reviewed` or `idle`.
+Run `<quick-check>` (docs-only diff: tree and task-guard checks only). Push each branch once (`bash scripts/push-pr.sh`); one PR per branch, a section per fix (evidence, cause, change, metric); finish it (`finish-pr`). Then always run `bash scripts/issues-sync.sh`; log a failure. Use the `run-log` skill; outcome `rescued`, `reviewed` or `idle`.

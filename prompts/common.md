@@ -43,7 +43,7 @@ Never raise one for progress or retryable failures.
 ## Hard rules
 - **Branches.** Push only to `claude/*` branches. Never push to main, force-push, or delete branches or tags.
 - **PRs.** Open non-draft (`-F draft=false`), labelled `in-progress`. Touch only PRs you opened (`finish-pr`); never approve or merge directly (only GitHub auto-merge merges).
-- **Before pushing,** confirm the branch's PR is still open; if not, branch anew from origin/main.
+- **Push** only with `scripts/push-pr.sh` (it checks the PR is still open); comment with `scripts/agent-comment.sh`.
 - **tasks.md.** Only flip checkboxes, and only after the task is verified. Never edit task text; `scripts/check-task-edits.sh` enforces this.
 - **Agent-system files** (role prompts, skills, agent scripts) change only in a `claude/harness-release-<YYYY-WW>-<topic>` PR (optimizer, any day) or a `claude/hotfix-<date>` branch for red main, a security fix or every run failing. Put any other finding on the `harness-backlog` issue. Agent branches never change the trust root: this file, `merge-policy.md`, `routing.json`, the agent rules file, the project's CLAUDE.md, the plan's rules config, workflows, agent settings, the `merge-review` skill, and the guard, gate and routing scripts (`merge.protected_paths`).
 - **Schedules.** Never create, change or delete routines or schedules. Propose schedule changes to the owner instead.

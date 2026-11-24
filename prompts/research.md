@@ -24,7 +24,7 @@ Its branch and PR need contents write, which the research App normally lacks; it
 6. If anything changed:
    - Create the branch `claude/research-<YYYY-MM>`.
    - Update the docs, keeping their format, with source URLs and the check date. Mark anything unverified.
-   - Push once, open a PR, and finish it (`finish-pr` skill).
+   - Push once (`bash scripts/push-pr.sh`) and finish the PR (`finish-pr` skill).
 
    If nothing changed, don't create a branch.
 7. Raise an owner decision only for:
