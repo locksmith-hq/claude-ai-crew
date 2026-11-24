@@ -7,6 +7,8 @@
 #   crew activate [--crew path/to/crew.json] [--yes]   merge the install PRs, enable the schedules, run doctor
 #   crew apps list   [--crew path/to/crew.json]                                    which roles have an App key and id stored
 #   crew doctor [path/to/crew.json]
+#   crew tokens sync [--crew crew.json] [--store github|ssm] [--ssm-prefix /crew/<project>] [--region R] [--only NAME ...] [--repo ORG/NAME ...] [--dry-run]
+#               set every role's fire token (crew.json roles.<role>.secret) in the plan and code repos, all or nothing
 # `init --plan` prints every action and changes nothing. Setup is fully scripted: no secret is pasted and no web page
 # is needed. Repo access comes from your `gh` login (identity=gh), the Claude token from the environment
 # (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY); both are piped straight into `gh secret set` and never printed.
@@ -14,7 +16,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; HARNESS="$(cd "$HERE/.." && pwd)"
 DRY=0; PROJECT=""; PLAN=""; CODES=(); RUNNER=actions; IDENT=gh; NOWEB=0; FORCECL=0; ACTIVATE=1; WORKERS=2
-HREPO="locksmith-hq/claude-ai-crew"; HREF=main
+# The harness repo defaults to this checkout's own origin (owner/name); no org is built in.
+HREPO=$(git -C "$HARNESS" remote get-url origin 2>/dev/null | sed -E 's#^(https?://[^/]+/|git@[^:]+:|ssh://git@[^/]+/)##; s#\.git$##'); HREF=main
 say() { printf '%s\n' "$*"; }
 die() { echo "crew: $*" >&2; exit 2; }
 # act "<description>" cmd...: prints in --plan mode, otherwise runs and reports failure
@@ -27,6 +30,7 @@ cmd_init() {
     --plan) DRY=1 ;; --project) PROJECT="$2"; shift ;; --plan-repo) PLAN="$2"; shift ;;
     --code-repo) CODES+=("$2"); shift ;; --runner) RUNNER="$2"; shift ;; --identity) IDENT="$2"; shift ;; --workers) WORKERS="$2"; shift ;; --no-web) NOWEB=1 ;; --force-claude) FORCECL=1 ;; --no-activate) ACTIVATE=0 ;;
     --harness-repo) HREPO="$2"; shift ;; --harness-ref) HREF="$2"; shift ;; *) die "unknown option: $1" ;; esac; shift; done
+  [[ "$HREPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "cannot tell which repo hosts the harness (no git origin in $HARNESS): pass --harness-repo ORG/NAME"
   [ -n "$PROJECT" ] && [ -n "$PLAN" ] && [ "${#CODES[@]}" -gt 0 ] || die "init needs --project, --plan-repo and at least one --code-repo"
   case "$RUNNER" in actions|routines) ;; *) die "--runner must be actions or routines" ;; esac
   [ "$IDENT" = single ] && IDENT=app
@@ -271,14 +275,94 @@ cmd_activate() {
   cmd_doctor "$cfg"
 }
 
+# crew tokens sync: set every role's fire token in every crew repo (plan + code, GitHub repo secrets), all or nothing.
+#   --store github (default): repo secrets only. --store ssm: also AWS SSM SecureStrings (--ssm-prefix, --region), which then
+#   is the source of truth for values and makes rollback exact.
+# Names come from crew.json roles.<role>.secret. Value of each, first hit wins: env var of the same name, else SSM (ssm store),
+# else a silent prompt. Values go to aws/gh on stdin/files; never printed.
+# (1) gather every value, (2) preflight every target accepts writes, (3) write, (4) on any failure roll back what was written
+# (deleted if it did not exist before; restored from SSM when known; otherwise reported so you can fix it by hand).
+cmd_tokens() {
+  [ "${1:-}" = sync ] || die "usage: crew tokens sync [--crew crew.json] [--store github|ssm] [--ssm-prefix P] [--region R] [--only NAME ...] [--repo ORG/NAME ...] [--dry-run]"
+  shift
+  (
+  local crew="${CREW_CONFIG:-./crew.json}" store=github prefix="" region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}" dry=0 only=() extra=()
+  while [ $# -gt 0 ]; do case "$1" in
+    --crew) crew=$2; shift ;; --store) store=$2; shift ;; --ssm-prefix) prefix=$2; shift ;; --region) region=$2; shift ;;
+    --only) only+=("$2"); shift ;; --repo) extra+=("$2"); shift ;; --dry-run) dry=1 ;; *) die "unknown option: $1" ;; esac; shift; done
+  case "$store" in github|ssm) ;; *) die "--store must be github or ssm" ;; esac
+  for c in jq gh; do command -v "$c" >/dev/null || die "$c is required"; done
+  [ "$store" = ssm ] && { command -v aws >/dev/null || die "aws is required for --store ssm"; }
+  [ -f "$crew" ] || die "no $crew (use --crew)"
+  [ -n "$prefix" ] || prefix="/crew/$(jq -r .project "$crew")"
+  local repos names awsr=() n r v old tmp bad=0
+  repos=$({ jq -r '[.repos.plan, .repos.code[]] | .[]' "$crew"; printf '%s\n' ${extra[@]+"${extra[@]}"}; } | grep . | sort -u)
+  names=$(jq -r '[.roles[].secret // empty] | unique[]' "$crew")
+  [ ${#only[@]} -gt 0 ] && names=$(printf '%s\n' "${only[@]}")
+  [ -n "$names" ] || die "no secret names (roles.<role>.secret in $crew, or --only NAME)"
+  [ -n "$region" ] && awsr=(--region "$region")
+  ssm() { aws ssm "$1" ${awsr[@]+"${awsr[@]}"} "${@:2}"; }
+  getp() { ssm get-parameter --name "$prefix/$1" --with-decryption --query Parameter.Value --output text 2>/dev/null; }
+  tmp=$(mktemp -d); chmod 700 "$tmp"; trap 'rm -rf "$tmp"' EXIT
+
+  # (1) gather every value first; nothing is written until all are known
+  for n in $names; do
+    old=""; [ "$store" = ssm ] && { old=$(getp "$n" || true); [ -n "$old" ] && printf '%s' "$old" >"$tmp/$n.old"; }
+    v=${!n:-}; [ -n "$v" ] || v=$old
+    if [ -z "$v" ]; then
+      [ "$dry" = 1 ] && { say "$n: no value (env$([ "$store" = ssm ] && echo ", SSM")); would prompt"; continue; }
+      read -rsp "$n: " v </dev/tty; echo
+    fi
+    [ -n "$v" ] || { echo "crew: $n: empty value; nothing written" >&2; exit 1; }
+    printf '%s' "$v" >"$tmp/$n.new"
+  done
+
+  # (2) preflight: every target must accept writes before anything changes; remember which repo secrets already exist
+  for r in $repos; do
+    gh api "repos/$r/actions/secrets/public-key" >/dev/null 2>&1 || { echo "preflight: cannot write secrets in $r" >&2; bad=1; continue; }
+    gh secret list -R "$r" --json name --jq '.[].name' 2>/dev/null >"$tmp/exist.$(tr / - <<<"$r")"
+  done
+  [ "$store" = ssm ] && { ssm describe-parameters --max-items 1 >/dev/null 2>&1 || { echo "preflight: SSM not reachable (aws credentials, region?)" >&2; bad=1; }; }
+  [ "$bad" = 0 ] || { echo "nothing written" >&2; exit 1; }
+  local nrepos; nrepos=$(wc -w <<<"$repos" | tr -d ' ')
+  if [ "$dry" = 1 ]; then for n in $names; do say "$n: would set $([ "$store" = ssm ] && echo "SSM $prefix/$n and ")$nrepos repos"; done; exit 0; fi
+
+  # (3) write (SSM first, then every repo); remember each write for rollback
+  local done_ssm=() done_repo=() fail="" lost=""
+  put() { ssm put-parameter --name "$prefix/$1" --type SecureString --overwrite --value "file://$tmp/$1.new" >/dev/null; }
+  setr() { gh secret set "$1" -R "$2" <"$tmp/$1.new" >/dev/null; }
+  if [ "$store" = ssm ]; then for n in $names; do put "$n" && done_ssm+=("$n") || { fail="SSM $n"; break; }; done; fi
+  if [ -z "$fail" ]; then for n in $names; do for r in $repos; do
+    setr "$n" "$r" && done_repo+=("$n $r") || { fail="$n in $r"; break 2; }
+  done; done; fi
+  [ -z "$fail" ] && { say "ok: ${#done_repo[@]} repo secrets set in $nrepos repos$([ "$store" = ssm ] && echo " and ${#done_ssm[@]} in SSM")"; exit 0; }
+
+  # (4) roll back
+  echo "FAILED at $fail; rolling back" >&2
+  for n in ${done_ssm[@]+"${done_ssm[@]}"}; do
+    if [ -f "$tmp/$n.old" ]; then cp "$tmp/$n.old" "$tmp/$n.new"; put "$n" || lost="$lost SSM:$n"
+    else ssm delete-parameter --name "$prefix/$n" >/dev/null || lost="$lost SSM:$n"; fi
+  done
+  for nr in ${done_repo[@]+"${done_repo[@]}"}; do
+    n=${nr%% *}; r=${nr#* }
+    if [ -f "$tmp/$n.old" ]; then setr "$n" "$r" || lost="$lost $n@$r"   # $tmp/$n.new was reset to the old value above (or still is, if SSM was not written)
+    elif grep -qx "$n" "$tmp/exist.$(tr / - <<<"$r")" 2>/dev/null; then lost="$lost $n@$r(had an old value, unknown)"
+    else gh secret delete "$n" -R "$r" >/dev/null 2>&1 || lost="$lost $n@$r"; fi
+  done
+  [ -z "$lost" ] && echo "rolled back; nothing changed" >&2 || echo "ROLLBACK INCOMPLETE, fix by hand:$lost" >&2
+  exit 1
+  )
+}
+
 case "${1:-}" in
   init) shift; cmd_init "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;
+  tokens) shift; cmd_tokens "$@" ;;
   apps) shift; cmd_apps "$@" ;;
   activate) shift; cmd_activate "$@" ;;
   schedules) shift; cmd_schedules "$@" ;;
   _store-repo-token) shift; cmd_store_repo_token "$@" ;;
   _install-callers) shift; cmd_install_callers "$@" ;;
-  ""|-h|--help|help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command: $1 (try: crew help)" ;;
 esac
