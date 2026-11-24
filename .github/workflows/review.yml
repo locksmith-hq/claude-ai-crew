@@ -167,6 +167,8 @@ jobs:
               elif grep -qE '^\s*- \[ \]' <<<"$t"; then st failure "unchecked tasks in plan change $id"; echo "::error::unchecked tasks in plan change $id"; exit 1; fi
             fi
           fi
+          # Renovate dependency PRs get no model review: they still pass the owned-paths and completeness checks above.
+          [ "$AUTHOR" = "renovate[bot]" ] && { st success "renovate PR: no model review"; echo done=1 >>"$GITHUB_OUTPUT"; exit 0; }
           # 4 an earlier PASS still applies if the PR's own diff is unchanged
           v=$(gh api "repos/$GITHUB_REPOSITORY/issues/$N/comments?per_page=100" --paginate \
             -q '.[]|select(.user.type=="Bot" and (.user.login|startswith("claude")))|.body|split("\n")[0]|select(startswith("merge-review "))' | tail -1)
