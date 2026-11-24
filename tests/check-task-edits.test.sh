@@ -8,7 +8,7 @@ git init -q -b main; git config user.email t@t; git config user.name t
 cat > crew.json <<'J'
 {"project":"t","repos":{"plan":"acme/plan","code":["acme/app"]},"owner":{"login":"boss"},
  "paths":{"changes":"changes/","owner_rules":"owner.md","decisions":"decisions.md"},
- "trust_root":[".github/workflows/","crew.json","owner.md","prompts/merge.md","skills/merge-review"],
+ "trust_root":[".github/workflows/review.yml",".github/workflows/crew-*",".github/workflows/aws-*","crew.json","owner.md","prompts/merge.md","skills/merge-review"],
  "agent_system":["prompts/","skills/","scripts/"]}
 J
 mkdir -p changes/c1; printf -- '- [ ] 1.1 Do A\n- [ ] 1.2 Do B\n' > changes/c1/tasks.md
@@ -47,9 +47,19 @@ expect 1 claude/change-c1b "worker branch may not edit a skill"
 echo x > skills/merge-review/SKILL.md; git add -A
 expect 1 claude/harness-release-2026-47 "agent release may not edit a trust-root skill"
 git rm -rq --cached skills prompts; rm -rf skills prompts
-mkdir -p .github/workflows; echo x > .github/workflows/ci.yml; git add -A
-expect 1 claude/hotfix-x "agent hotfix may not edit workflows"
-expect 0 owner/hotfix-x "owner hotfix may edit workflows"
+mkdir -p .github/workflows; echo x > .github/workflows/review.yml; git add -A
+expect 1 claude/hotfix-x "agent hotfix may not edit the merge-review workflow"
+expect 0 owner/hotfix-x "owner hotfix may edit the merge-review workflow"
+git rm -q --cached .github/workflows/review.yml; rm .github/workflows/review.yml
+echo x > .github/workflows/crew-wake.yml; git add -A
+expect 1 claude/hotfix-x "agent hotfix may not edit a crew-* caller workflow"
+git rm -q --cached .github/workflows/crew-wake.yml; rm .github/workflows/crew-wake.yml
+echo x > .github/workflows/aws-base-apply.yml; git add -A
+expect 1 claude/hotfix-x "agent may not edit an AWS workflow"
+git rm -q --cached .github/workflows/aws-base-apply.yml; rm .github/workflows/aws-base-apply.yml
+echo x > .github/workflows/ci.yml; git add -A
+expect 0 claude/hotfix-x "agent may edit a workflow outside the flow (ci.yml)"
+git rm -q --cached .github/workflows/ci.yml; rm .github/workflows/ci.yml
 git rm -rq --cached .github; rm -rf .github
 git checkout -q main; printf -- '- d1\n' > owner.md; printf -- '- m1\n' > decisions.md; git add -A; git commit -qm owner; git update-ref refs/remotes/origin/main HEAD
 git switch -qc claude/change-o1; printf -- '- d2\n' >> owner.md; git add -A

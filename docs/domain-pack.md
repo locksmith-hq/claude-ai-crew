@@ -48,7 +48,13 @@ your plan repo, plus the rules and plan files it points at. The harness never ha
       "ci"
     ],
     "protected_paths": [
-      ".github/workflows/",
+      ".github/workflows/review.yml",
+      ".github/workflows/wake.yml",
+      ".github/workflows/change-sync.yml",
+      ".github/workflows/owner-alert.yml",
+      ".github/workflows/role-run.yml",
+      ".github/workflows/crew-*",
+      ".github/workflows/aws-*",
       "crew.json",
       "owner.md"
     ]
@@ -141,7 +147,13 @@ your plan repo, plus the rules and plan files it points at. The harness never ha
   },
   "default_worker": "worker-a",
   "trust_root": [
-    ".github/workflows/",
+    ".github/workflows/review.yml",
+    ".github/workflows/wake.yml",
+    ".github/workflows/change-sync.yml",
+    ".github/workflows/owner-alert.yml",
+    ".github/workflows/role-run.yml",
+    ".github/workflows/crew-*",
+    ".github/workflows/aws-*",
     "crew.json",
     "owner.md"
   ],
