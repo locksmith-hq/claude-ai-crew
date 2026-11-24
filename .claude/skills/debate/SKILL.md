@@ -19,7 +19,7 @@ Opening wakes the other side.
 ## Take a turn
 1. Run `bash "$CREW_HARNESS_DIR/scripts/route.sh" debate <n>`. Act only if it prints `wake <your role>`. Anything else: stop and post nothing.
 2. Read the whole thread. Answer each point with evidence; never repeat one already answered.
-3. Comment: `<!-- agent -->`, `<!-- role: pm -->` or `<!-- role: lead -->`, one line `Stance: counter|agree|hold`, then your reply. The opening body starts the same way.
+3. Comment with `bash "$CREW_HARNESS_DIR/scripts/agent-comment.sh" plan <n> < <file>` (it adds the agent and role markers): one line `Stance: counter|agree|hold`, then your reply. The opening body starts the same way.
    - **counter:** a concrete new proposal, ideally a compromise: a smaller first slice, a later date, a cheaper approach.
    - **agree:** you accept the other side's latest proposal as written. Restate it in two lines.
    - **hold:** the gap is about values or risk, not facts, and no compromise is acceptable. Say what the owner must choose between.

@@ -18,7 +18,7 @@ Each run unblocks finished work, then takes tasks for about 40 minutes, across a
 6. **Plan ahead** (also after step 5): if `worker-has-work.sh` printed `plan the next one (<id>)`, write that change; the roadmap's `Needs` column, not your judgement, says it can start. Lock one: `run-lock.sh claim worker-<session> <id> $(bash scripts/change-status.sh --plannable)`. Use `openspec-propose` on `claude/planning-<id>`, set `x-depends_on` to its unarchived `Needs`, then open a PR and finish it (`finish-pr`). Nothing to plan: `request-work.sh`.
 7. **Finish each change** before leaving it:
    - `run-log` step 1 (`progress.md`) only.
-   - Push the branch once and open a non-draft PR if none exists.
+   - Push once: `bash scripts/push-pr.sh` (opens the PR if none exists).
    - Every task ticked: finish the PR (`finish-pr`).
    - Always release the lock, even after a failure: `bash scripts/run-lock.sh release worker-<session> <id>`.
 8. **End the run:** `run-log` steps 2–3, once.

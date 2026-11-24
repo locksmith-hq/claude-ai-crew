@@ -37,5 +37,5 @@
    - Write the next change using the `openspec-propose` workflow, including an empty `progress.md`.
    - Research first (haiku searches): maintained, free, licence-compatible OSS and tool servers.
    - Record versions, release dates and URLs; tag every task with its tier.
-   - Run `openspec validate --all`, commit, push once, open a PR, finish it (`finish-pr` skill).
+   - Run `openspec validate --all`, commit, push once (`bash scripts/push-pr.sh`), finish the PR (`finish-pr` skill).
 5. **Log.** Use the `run-log` skill to post the agent-log comment with the stats table and the metadata.

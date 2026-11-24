@@ -30,6 +30,8 @@ Oldest first, at most 4 per run; one failure does not stop the others. Lock the 
 - **`merge-ready` failure, review FAIL (`review-failed` label):** fix the findings with `evaluate-escalate`, resolve their threads, push once. The push reruns the review.
 - **Unchecked tasks:** finish them or turn auto-merge off (`gh pr merge <n> --disable-auto`).
 - **Conflicts:** merge `origin/main` into the branch. Lockfiles: take main's, then regenerate with the package manager. Workspace members, command-runner recipes, roadmap rows: keep both. Code: keep both behaviours; if they truly conflict, the later PR adapts. Run `<quick-check>`, push once.
-- **Red CI:** job logs may be blocked by the proxy; read `gh api repos/$CODE_REPO/check-runs/<job id>/annotations`, fix, push once.
+
+Push with `bash "$CREW_HARNESS_DIR/scripts/push-pr.sh"`. Exit 4: another session pushed; read its commits first (maybe the same fix).
+- **Red CI:** run `bash "$CREW_HARNESS_DIR/scripts/ci-failures.sh" <n>` (works when job logs are blocked): failed steps, annotations, `merge-ready`, conflicts; `nothing to fix` if merged. Fix, push once.
 - **`needs owner approval`** (an annotation of the failed review): never re-arm auto-merge; open a `Decision:` issue labelled `needs-rescue` in `$PLAN_REPO`.
 - **`merge-ready` stuck on pending** (review timed out): `gh pr merge <n> --disable-auto`, then `--auto --merge` again. Any other `merge-ready` error: read the annotations first.
