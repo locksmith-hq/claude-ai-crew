@@ -79,6 +79,35 @@ jq '.roles.lead.app_id=4242' "$W/plan/crew.json" > "$W/crew5.json"
 out=$(E env CREW_CONFIG="$W/crew5.json" AGENT_API_URL=http://127.0.0.1:9 AGENT_APP_KEY_LEAD="$(printf "not a key" | openssl base64 -A)" bash "$S/agent-identity.sh" setup lead 2>&1)
 grep -q "is not the base64 of a private key" <<<"$out" && ok "roles.<role>.app_id is used (the run got past the id step without a lookup)" || no "roles.<role>.app_id is used: $out"
 grep -q "roles\\\[\\\"\$role\\\"\\\]\.bot_id\|bot_id" "$S/agent-identity.sh" && ok "the bot user id is read from roles.<role>.bot_id before any lookup" || no "agent-identity.sh does not read roles.<role>.bot_id"
+# ---- whoami and verify-author (a recorded persona, a cached token, a shim and a fake real gh)
+mkdir -p "$W/id" "$W/fgh" "$W/shim"; printf lead > "$W/id/persona"; printf tok > "$W/id/token"; date +%s > "$W/id/minted"
+# the fake gh answers only with a token (as the shim gives); it logs each api path
+cat > "$W/fgh/gh" <<'FGH'
+#!/usr/bin/env bash
+[ -n "${GH_TOKEN:-}" ] || exit 1
+echo "$2" >> "$GHLOG"
+case "$2" in repos/acme/plan) echo acme/plan ;; *) [ -n "${FAKE_AUTHOR:-}" ] && echo "$FAKE_AUTHOR" ;; esac
+FGH
+mkshim() { # <root>...: a shim like shim_text's: the token only under the roots
+  local pat="" r; for r in "$@"; do pat="${pat:+$pat|}$(printf '%q' "$(cd "$r" && pwd -P)")/*"; done
+  printf '#!/usr/bin/env bash\ncase "$(pwd -P)/" in %s) export GH_TOKEN=tok ;; esac\nexec %q "$@"\n' "$pat" "$W/fgh/gh" > "$W/shim/gh"
+}
+mkshim "$W/plan" "$W/code"; chmod +x "$W/fgh/gh" "$W/shim/gh"; printf '%s' "$W/shim/gh" > "$W/id/shim"
+I() { E env AGENT_ID_DIR="$W/id" GHLOG="$W/gh.log" PATH="$W/shim:$W/bin:$PATH" "$@"; }
+out=$(I bash "$S/agent-identity.sh" whoami 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -q '^identity: example-lead\[bot\]' <<<"$out" && ! grep -q tok <<<"$out" && ok "whoami prints the role's login, no token" || no "whoami: rc=$rc $out"
+out=$(I env PATH="$W/bin:$W/shim:$PATH" bash "$S/agent-identity.sh" whoami 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q 'shim is not first' <<<"$out" && ok "whoami fails when the shim is not first in PATH" || no "whoami without shim: rc=$rc $out"
+mkshim "$W/code"; out=$(I bash "$S/agent-identity.sh" whoami 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q 'shim does not cover' <<<"$out" && ok "whoami fails when the shim does not cover the plan checkout" || no "whoami uncovered: rc=$rc $out"
+mkshim "$W/plan" "$W/code"
+out=$(I bash "$S/agent-identity.sh" whoami worker-a 2>&1); [ $? = 1 ] && grep -q "set up as 'lead'" <<<"$out" && ok "whoami fails for another role" || no "whoami other role: $out"
+: > "$W/gh.log"
+out=$(I env FAKE_AUTHOR='example-lead[bot]' bash "$S/agent-identity.sh" verify-author 'https://github.com/acme/plan/issues/11#issuecomment-55' 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -qx 'repos/acme/plan/issues/comments/55' "$W/gh.log" && ok "verify-author passes the role's own comment" || no "verify-author own: rc=$rc $out $(cat "$W/gh.log")"
+out=$(I env FAKE_AUTHOR=boss bash "$S/agent-identity.sh" verify-author 'https://github.com/acme/app/pull/41/files#r1' 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q 'posted as boss' <<<"$out" && grep -q 'harness issue' <<<"$out" && grep -qx 'repos/acme/app/pulls/41' "$W/gh.log" && ok "verify-author fails on a mismatch (PR as the owner)" || no "verify-author mismatch: rc=$rc $out"
+out=$(I bash "$S/agent-identity.sh" verify-author /repos/acme/plan/issues/12 2>&1); [ $? = 2 ] && ok "verify-author: unreadable is not a mismatch (exit 2)" || no "verify-author unreadable: $out"
 # ---- bg.sh
 E bash "$S/bg.sh" start ok 20 -- sh -c 'echo hello; exit 0' >/dev/null
 out=$(E bash "$S/bg.sh" wait ok 10); rc=$?

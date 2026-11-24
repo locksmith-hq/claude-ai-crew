@@ -7,6 +7,12 @@
 #   agent-identity.sh credential get git credential helper
 #   agent-identity.sh keyvar <role>  the name of the variable that holds the role's App key (never its value)
 #   agent-identity.sh logins [role]  the role's GitHub logins, one per line (default: the recorded persona)
+#   agent-identity.sh whoami [role]  prints "identity: <login>" and exits 0 only when the gh shim covers the plan and
+#                                    code checkouts, the role's token mints, and a repo read through the shim works.
+#                                    In a cloud session `gh api user` is answered by the session proxy (the owner,
+#                                    whatever token is set), so it says nothing about identity; use this instead.
+#   agent-identity.sh verify-author <url|api-path>  after the first post: exits 1 when the comment, issue or PR's
+#                                    user.login is not one of the role's logins (exit 2 when it cannot be read)
 #   agent-identity.sh selftest       offline checks
 # Per role (ROLE = the role key upper-cased, "-" -> "_"):
 #   AGENT_APP_ID_<ROLE>   the App id (not secret)
@@ -165,6 +171,40 @@ shim_text() { # <real gh> <checkout root>...
   printf '#!/usr/bin/env bash\ncase "$(pwd -P)/" in %s) t=$(AGENT_ID_DIR=%q bash %q token 2>/dev/null) && export GH_TOKEN="$t" NO_PROXY="${NO_PROXY:+$NO_PROXY,}api.github.com,github.com" no_proxy="${no_proxy:+$no_proxy,}api.github.com,github.com" ;; esac\nexec %q "$@"\n' \
     "$pat" "$state" "$self" "$real"
 }
+whoami() { # [role]: secret-free: never prints the token
+  local role persona login shim name d
+  persona=$(cat "$state/persona" 2>/dev/null); role=${1:-$persona}
+  login=$(crew_role_login "$role"); [ -n "$login" ] || { echo "FAIL whoami: unknown role '$role'"; return 1; }
+  [ "$role" = "$persona" ] || { echo "FAIL whoami: this run is set up as '${persona:-nobody}', not '$role' (run agent-start.sh)"; return 1; }
+  shim=$(cat "$state/shim" 2>/dev/null)
+  [ -n "$shim" ] && [ "$(cd "$CREW_PLAN_DIR" && command -v gh)" = "$shim" ] || { echo "FAIL whoami: the gh shim is not first in PATH (run agent-start.sh)"; return 1; }
+  # the shim adds GH_TOKEN only under its checkout roots; outside them gh goes through the proxy as the owner
+  while IFS= read -r d; do
+    grep -qF "$(printf '%q' "$(cd "$d" && pwd -P)")/*" "$shim" || { echo "FAIL whoami: the gh shim does not cover $d"; return 1; }
+  done < <(checkouts)
+  token >/dev/null || { echo "FAIL whoami: no installation token for $role: $(cat "$state/why" 2>/dev/null)"; return 1; }
+  name=$(cd "$CREW_PLAN_DIR" && gh api "repos/$PLAN_REPO" -q .full_name 2>/dev/null)
+  [ "$name" = "$PLAN_REPO" ] || { echo "FAIL whoami: a read of $PLAN_REPO through the shim failed"; return 1; }
+  echo "identity: $login (gh shim active in the plan and code checkouts; gh api user is the session proxy, ignore it)"
+}
+verify_author() { # <html url | api url | api path>
+  local p="$1" n role who
+  case "$p" in
+    https://github.com/*/issues/*#issuecomment-*|https://github.com/*/pull/*#issuecomment-*)
+      p=${p#https://github.com/}; p="repos/${p%%/issues/*}"; p="${p%%/pull/*}/issues/comments/${1##*#issuecomment-}" ;;
+    https://github.com/*/pull/*#discussion_r*)
+      p=${p#https://github.com/}; p="repos/${p%%/pull/*}/pulls/comments/${1##*#discussion_r}" ;;
+    https://github.com/*/pull/*) p=${p%%#*}; p=${p#https://github.com/}; n=${p##*/pull/}; p="repos/${p%%/pull/*}/pulls/${n%%/*}" ;;  # drops /files and #fragments
+    https://github.com/*) p="repos/${p#https://github.com/}" ;;
+    https://api.github.com/*) p=${p#https://api.github.com/} ;;
+  esac
+  role=$(cat "$state/persona" 2>/dev/null) || { echo "FAIL verify-author: no persona recorded (run agent-start.sh)"; return 2; }
+  who=$(cd "$CREW_PLAN_DIR" && gh api "${p#/}" -q .user.login 2>/dev/null)
+  [ -n "$who" ] || { echo "WARN verify-author: cannot read the author of $p (not a mismatch; retry)"; return 2; }
+  crew_role_logins "$role" | grep -qxF "$who" && { echo "OK author: $who"; return 0; }
+  echo "FAIL verify-author: $p was posted as $who, not as $role ($(crew_role_logins "$role" | paste -sd, -)). Stop and open a harness issue."
+  return 1
+}
 selftest() {
   local d h p s role
   d=$(mktemp -d)
@@ -206,7 +246,9 @@ case "${1:-}" in
   keyvar) keyvar "${2:?usage: agent-identity.sh keyvar <role>}" ;;
   logins) p=${2:-$(cat "$state/persona" 2>/dev/null)}; crew_role_logins "${p:?usage: agent-identity.sh logins <role>}" ;;  # later shells lose $AGENT_PERSONA
   token) token ;;
+  whoami) whoami "${2:-}" ;;
+  verify-author) verify_author "${2:?usage: agent-identity.sh verify-author <comment-or-pr-url|api-path>}" ;;
   credential) [ "${2:-}" = get ] && t=$(token) && printf 'username=x-access-token\npassword=%s\n' "$t" ;;
   selftest) selftest ;;
-  *) echo "usage: agent-identity.sh setup <role> | keyvar <role> | logins [role] | token | credential get | selftest" >&2; exit 2 ;;
+  *) echo "usage: agent-identity.sh setup <role> | keyvar <role> | logins [role] | whoami [role] | verify-author <url> | token | credential get | selftest" >&2; exit 2 ;;
 esac
