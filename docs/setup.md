@@ -20,7 +20,7 @@ for the parts only you can do. Prefer the terminal? Run the commands yourself.
 
 ## What lives where (any org)
 - **This harness** (`claude-ai-crew`): scripts, workflows, prompts and `crew.defaults.json`. Nothing org-specific. Fork or use as is.
-- **Your plan repo**: one `crew.json` with only your overrides (owner login, plan and code repos, each role's `name`, secret names, `batched`, checklist, paths). Persona handles derive from `name`: `@<project>-<name>` and `@<org>/<name>` (for example a role named "Iron Man" answers to `@acme-iron-man`).
+- **Your plan repo**: one `crew.json` with only your overrides (owner login, plan and code repos, each role's `name`, secret names, `batched`, checklist, paths). Persona handles derive from `name`: `@<project>-<name>` and `@<org>/<name>` (for example a role named "Atlas Lead" answers to `@acme-atlas-lead`).
 - **Each repo (plan and code)**: one caller, `templates/callers/crew-wake.yml`, with `plan_repo` set. Pin the harness to a release tag (`@v1`, a moving major tag) instead of a sha, so a harness fix reaches every repo without per-repo bump PRs.
 - **Secrets**: the roles' fire tokens in every repo that has a caller, set in one step with `crew tokens sync`.
 

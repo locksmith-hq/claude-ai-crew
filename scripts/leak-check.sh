@@ -31,6 +31,11 @@ for p in "${generic[@]}"; do scan "${p%%  *}"; done
 if [ -f .leak-denylist.local ]; then
   while IFS= read -r p; do case "$p" in ''|'#'*) continue ;; esac; scan "$p"; done < .leak-denylist.local
 fi
+# Org-specific names (your org, owner login, project, persona names) one regex per line, from CI: set the repo
+# Actions variable LEAK_DENYLIST (not committed, so the list itself never leaks).
+if [ -n "${LEAK_DENYLIST:-}" ]; then
+  while IFS= read -r p; do case "$p" in ''|'#'*) continue ;; esac; scan "$p"; done <<<"$LEAK_DENYLIST"
+fi
 rm -f "$files"
 [ "$fail" = 0 ] && echo "leak-check: OK"
 exit "$fail"

@@ -13,7 +13,7 @@ replace the default. So a minimal `crew.json` is the owner, the repos and what i
 looks like); you only need to write the parts that differ from the defaults.
 
 Handles: `@<project>-<role>` and `@<org>/<role>` wake a role; a role's optional `name` adds
-`@<project>-<slug>` and `@<org>/<slug>` (lowercase, spaces to `-`: name "Iron Man" gives `@acme-iron-man`).
+`@<project>-<slug>` and `@<org>/<slug>` (lowercase, spaces to `-`: name "Atlas Lead" gives `@acme-atlas-lead`).
 Keep names, logins, repo names and ids in your `crew.json`, never in the harness.
 
 ## Full `crew.json`

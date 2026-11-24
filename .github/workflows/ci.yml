@@ -13,6 +13,8 @@ jobs:
         with:
           fetch-depth: 0
       - name: tests, leak-check, pack validation, shellcheck
+        env:
+          LEAK_DENYLIST: ${{ vars.LEAK_DENYLIST }}
         run: bash tests/run-all.sh
       - name: gitleaks
         env:
