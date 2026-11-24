@@ -58,4 +58,6 @@ else echo "WARN   identity: no ${persona:+$var }key in this environment; acting 
 echo "== active lessons ($PATH_LESSONS on origin/$MAIN of the plan repo)"
 lessons=$(crew_plan_git show "origin/$MAIN:$PATH_LESSONS" 2>/dev/null | awk '/^## L[0-9]+/{p=1} p')
 echo "${lessons:-(none)}"
+# Proof of life for the dispatcher (workers only; no-op for other roles). Never fails the start.
+[ "$pf" = 0 ] && AGENT_PERSONA="$persona" bash "$here/agent-heartbeat.sh" start
 exit "$pf"
