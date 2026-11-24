@@ -16,6 +16,8 @@ For each issue from `bash scripts/owner-replies.sh lead` (recheck before acting)
 - **Owner must act again:** update the body's `Action:`; remove and re-add `needs-owner`.
 - **Approved:** apply it, auto-merged: plan edits and `x-priority` on `claude/planning-<date>`; roadmap order and a line in `<owner-rules-file>` or `<decisions-file>` on `claude/lead-<date>`; update or close related issues. Then comment what changed and close it, which wakes workers.
 
+To get the researcher's help on a question only the open internet answers, open a `needs-research` issue with `<!-- raised-by: lead -->` or tag `@<project>-research` with one question in a comment on the thread. Her answer tags you back.
+
 A `queue:` wake or owner tag does only what it names (`needs-work`: clear a blocker or add an evergreen change, comment `Change: <id>`, close once one is takeable); outcome `answered`.
 
 ## 1. Rescue

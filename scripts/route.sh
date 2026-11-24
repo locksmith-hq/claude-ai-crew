@@ -203,10 +203,10 @@ event() { # <event.json>; GITHUB_EVENT_NAME says which event it is
       here=$(jq -r '.repository.full_name // empty' "$ev"); [ -n "$here" ] || here=$repo
       owner=false; [ "$who" = "$OWNER_LOGIN" ] && ! grep -qE "$marker" <<<"$body" && owner=true
       # Owner tags (@<project>-<role> or the org team @<org>/<role>, or an alias in .mentions) wake exactly the tagged roles, on issues and PRs alike, and replace the reply rule.
-      # The research bot (open internet, comments only) tags the roles its answer is for; it never wakes itself.
-      src=owner; [ "$owner" = false ] && [ "$(role_of "$who")" = research ] && src=research
+      # The research, pm and lead bots tag the roles they need (the PM the lead, the lead research, research the asker); a role never wakes itself.
+      src=owner; [ "$owner" = false ] && case "$(role_of "$who")" in research|pm|lead) src=$(role_of "$who") ;; esac
       [ "$here" != "$repo" ] && [ "$src" != owner ] && return 0
-      tags=$({ [ "$owner" = true ] || [ "$src" = research ]; } && tags_of "$body" | grep -vx "$([ "$src" = research ] && echo research)")
+      tags=$({ [ "$owner" = true ] || [ "$src" != owner ]; } && tags_of "$body" | grep -vx "$([ "$src" != owner ] && echo "$src")")
       if [ -n "$tags" ]; then
         for to in $tags; do printf '%s\t%s tagged you on #%s%s: %s\n' "$to" "$src" "$n" "$([ "$here" != "$repo" ] && echo " in $here")" "$(jq -r '.comment.html_url // ""' "$ev")"; done
         return 0
@@ -335,6 +335,9 @@ no role marker"
   ev 'pm\tresearch tagged you on #6: u\nworker-b\tresearch tagged you on #6: u' issue_comment '{"issue":{"number":6,"labels":[{"name":"needs-research"}]},"comment":{"html_url":"u","user":{"login":"acme-research[bot]"},"body":"Answer: yes.\n@acme-pm @acme-worker-b @acme-research"}}'
   ev '' issue_comment '{"issue":{"number":6,"labels":[{"name":"needs-owner"}]},"comment":{"user":{"login":"acme-research[bot]"},"body":"no tags"}}'
   ev '' issue_comment '{"issue":{"number":8,"labels":[]},"comment":{"user":{"login":"acme-worker-a[bot]"},"body":"@acme-lead"}}'
+  # the PM tags the lead and the lead tags research; neither wakes itself
+  ev 'lead\tpm tagged you on #6: u' issue_comment '{"issue":{"number":6,"labels":[]},"comment":{"html_url":"u","user":{"login":"acme-pm[bot]"},"body":"@acme-lead @acme-pm decide"}}'
+  ev 'research\tlead tagged you on #6: u' issue_comment '{"issue":{"number":6,"labels":[]},"comment":{"html_url":"u","user":{"login":"acme-lead[bot]"},"body":"@acme-research which licence?"}}'
   ev 'research\towner tagged you on #9: u' issue_comment '{"issue":{"number":9,"labels":[]},"comment":{"html_url":"u","user":{"login":"boss"},"body":"@acme-research what does X cost?"}}'
   # no tag: the role that raised the issue gets the reply, else the lead
   ev 'pm\towner replied on needs-owner #7' issue_comment '{"issue":{"number":7,"body":"x\n<!-- raised-by: pm -->","labels":[{"name":"needs-owner"}]},"comment":{"user":{"login":"boss"},"body":"yes"}}'
