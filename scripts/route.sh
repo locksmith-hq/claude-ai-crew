@@ -197,16 +197,20 @@ event() { # <event.json>; GITHUB_EVENT_NAME says which event it is
       n=$(jq -r .issue.number "$ev"); labels=$(jq -r '.issue.labels[].name' "$ev")
       who=$(jq -r .comment.user.login "$ev"); body=$(jq -r .comment.body "$ev")
       id=$(jq -r '.comment.id // 0' "$ev"); at=$(jq -r '.comment.created_at // ""' "$ev")
+      # Another repo of the crew (not the plan repo): only an owner tag counts. Reply, debate and research-queue rules
+      # read and label the plan repo's issues, so #n there would be a different issue.
+      here=$(jq -r '.repository.full_name // empty' "$ev"); [ -n "$here" ] || here=$repo
       owner=false; [ "$who" = "$OWNER_LOGIN" ] && ! grep -qE "$marker" <<<"$body" && owner=true
       # Owner tags (@<project>-<role> or the org team @<org>/<role>, or an alias in .mentions) wake exactly the tagged roles, on issues and PRs alike, and replace the reply rule.
       # The research bot (open internet, comments only) tags the roles its answer is for; it never wakes itself.
       src=owner; [ "$owner" = false ] && [ "$(role_of "$who")" = research ] && src=research
+      [ "$here" != "$repo" ] && [ "$src" != owner ] && return 0
       tags=$({ [ "$owner" = true ] || [ "$src" = research ]; } && tags_of "$body" | grep -vx "$([ "$src" = research ] && echo research)")
       if [ -n "$tags" ]; then
-        for to in $tags; do printf '%s\t%s tagged you on #%s: %s\n' "$to" "$src" "$n" "$(jq -r '.comment.html_url // ""' "$ev")"; done
+        for to in $tags; do printf '%s\t%s tagged you on #%s%s: %s\n' "$to" "$src" "$n" "$([ "$here" != "$repo" ] && echo " in $here")" "$(jq -r '.comment.html_url // ""' "$ev")"; done
         return 0
       fi
-      [ "$src" = research ] && return 0
+      [ "$src" = research ] || [ "$here" != "$repo" ] && return 0
       [ "$(jq -r '.issue.pull_request != null' "$ev")" = true ] && return 0
       for l in $labels; do
         to=$(resolve "$(cfgq --arg l "$l" '.channels[$l].on_reply // empty')" "$ev")
@@ -317,6 +321,9 @@ no role marker"
   # owner tags: on issues and PRs, any label; several roles; the tag replaces the reply rule; agents and others cannot tag
   ev 'pm\towner tagged you on #7: u\nresearch\towner tagged you on #7: u' issue_comment '{"issue":{"number":7,"labels":[{"name":"needs-owner"}]},"comment":{"html_url":"u","user":{"login":"boss"},"body":"@acme-pm and @acme-research: check this"}}'
   ev 'worker-a\towner tagged you on #8: u' issue_comment '{"issue":{"number":8,"labels":[],"pull_request":{}},"comment":{"html_url":"u","user":{"login":"boss"},"body":"@acme-worker rebase please"}}'
+  # another repo of the crew: only an owner tag wakes, and the reason names the repo; replies and research tags are plan-repo only
+  ev 'lead\towner tagged you on #3 in acme-org/code: u' issue_comment '{"repository":{"full_name":"acme-org/code"},"issue":{"number":3,"labels":[]},"comment":{"html_url":"u","user":{"login":"boss"},"body":"@acme-lead look"}}'
+  ev '' issue_comment '{"repository":{"full_name":"acme-org/code"},"issue":{"number":3,"labels":[{"name":"needs-owner"}]},"comment":{"user":{"login":"boss"},"body":"approved"}}'
   ev 'worker-c\towner tagged you on #8: u' issue_comment '{"issue":{"number":8,"labels":[],"pull_request":{}},"comment":{"html_url":"u","user":{"login":"boss"},"body":"@acme-worker-c rebase please"}}'
   ev 'lead\towner tagged you on #8: u\nworker-b\towner tagged you on #8: u' issue_comment '{"issue":{"number":8,"labels":[],"pull_request":{}},"comment":{"html_url":"u","user":{"login":"boss"},"body":"@acme-org/lead and @acme-org/worker-b: look"}}'
   ev '' issue_comment '{"issue":{"number":8,"labels":[]},"comment":{"user":{"login":"boss"},"body":"<!-- agent -->\n@acme-lead"}}'

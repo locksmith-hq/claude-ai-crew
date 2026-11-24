@@ -45,7 +45,10 @@ jobs:
     # Issue events count only in the plan repo; CI and review runs come from wherever the caller is installed.
     # Debate turns also come from App bots (author_association is not OWNER); route.sh reads roles from logins.
     if: >-
-      (github.event_name == 'issue_comment' && github.repository == inputs.plan_repo &&
+      (github.event_name == 'issue_comment' &&
+       # Outside the plan repo only an owner tag (a human comment with an @) wakes a role; debates and replies are plan-repo channels.
+       (github.repository == inputs.plan_repo ||
+        (github.event.comment.user.type != 'Bot' && contains(github.event.comment.body, '@'))) &&
        (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) || github.event.comment.user.type == 'Bot') &&
        (github.event.comment.user.type == 'Bot' ||
         (!contains(github.event.comment.body, '<!-- agent -->') &&
