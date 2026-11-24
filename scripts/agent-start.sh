@@ -47,7 +47,8 @@ persona="${2:-${AGENT_PERSONA:-}}"; var=AGENT_APP_KEY_
 echo "== identity"
 if [ -n "$persona" ] && [ -n "${!var:-}" ]; then
   # A key is set, so a run must never fall back to the owner: setup undoes itself and prints FAIL on any error.
-  bash "$here/agent-identity.sh" setup "$persona" || pf=1
+  # whoami: the sanctioned identity check (in a cloud session `gh api user` is answered by the proxy as the owner)
+  if bash "$here/agent-identity.sh" setup "$persona"; then bash "$here/agent-identity.sh" whoami "$persona" || pf=1; else pf=1; fi
 elif compgen -v AGENT_APP_KEY_ >/dev/null; then
   # Keys here but none for this persona (often a routine that forgot to pass it): never fall back to the owner.
   echo "FAIL identity: this environment holds App keys but $([ -n "$persona" ] && echo "no $var" || echo "no persona was passed"); run agent-start.sh $kind <persona>"; pf=1
