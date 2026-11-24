@@ -120,9 +120,11 @@ setup() {
   app_name="${login%\[bot\]}"
   (umask 077 && mkdir -p "$state") && printf '%s' "$role" >"$state/persona"
   token >/dev/null || fail "$(cat "$state/why" 2>/dev/null || echo "no working key for $role")"
-  # The bot's user id (for the noreply commit email) is public.
-  uid=$(curl -fsS --noproxy '*' "$api/users/${app_name}%5Bbot%5D" 2>/dev/null | jq -r '.id // empty')
-  [ -n "$uid" ] || fail "cannot look up the bot user id of ${login}"
+  # The bot's user id (for the noreply commit email) is public. Preferred: crew.json roles.<role>.bot_id, because a cloud
+  # session proxy refuses GET /users/<bot> (403, observed 2026-11-24); the lookup is only the fallback.
+  uid=$(crew_get ".roles[\"$role\"].bot_id")
+  [ -n "$uid" ] || uid=$(curl -fsS --noproxy '*' "$api/users/${app_name}%5Bbot%5D" 2>/dev/null | jq -r '.id // empty')
+  [ -n "$uid" ] || fail "cannot look up the bot user id of ${login} (set roles.${role}.bot_id in crew.json)"
 
   # gh: a shim earlier on PATH adds the app token, so every later `gh` call inside a checkout acts as the app.
   # Outside the checkouts the shim passes through, so on a shared machine (the owner's Mac) the owner's own gh is unchanged.
