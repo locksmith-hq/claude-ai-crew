@@ -4,7 +4,7 @@
 # blocked. One line per change: <id> <state> <detail>
 #   ready      deps merged, nothing open blocks it
 #   stackable  a dep is unmerged but its PR is fully ticked; branch from that PR's branch
-#   blocked    a dep is not finished (detail names it)
+#   blocked    a dep is not finished, or the change's code branch shares no history with main (detail says which)
 #   parked     an open needs-rescue issue names this change (detail: rescue #n, or owner #n once the lead
 #              escalated it with needs-owner), or an open needs-owner-only issue names it and the next unticked
 #              task is a `Gate:` task (detail: owner #n). Owner gates go last, so they block only their own tasks.
@@ -49,6 +49,10 @@ dep_state() {
   if [ "$1" != "$d" ]; then t=$(awk '/^## /{c=($0 ~ /[Cc]ontract/)} c' <<<"$t"); [ -n "$t" ] || { echo unmet; return; }; fi
   if all_ticked "$t"; then echo branch; else echo unmet; fi
 }
+# A change branch in the code repo with no history in common with main cannot take main in (observed 2026-11: two
+# workers claimed one, one released it, the other opened a rescue).
+unrelated() { crew_code_git rev-parse -q --verify origin/main >/dev/null && crew_code_git rev-parse -q --verify "origin/claude/change-$1" >/dev/null &&
+  ! crew_code_git merge-base origin/main "origin/claude/change-$1" >/dev/null; }
 deps_of() { sed -nE 's/^x-depends_on:[[:space:]]*\[(.*)\][[:space:]]*$/\1/p' "$CH/$1/.openspec.yaml" 2>/dev/null | tr ',' '\n' | tr -d ' "'"'" | grep -v '^$'; }
 
 if [ "${1:-}" = --plannable ]; then
@@ -108,6 +112,7 @@ for id in $ids; do
         state=parked; detail="$([ "$k" = rescue ] && echo rescue || echo owner) #$(cut -d' ' -f1 <<<"$b")"; break
       done
     fi
+    if { [ "$state" = ready ] || [ "$state" = stackable ]; } && unrelated "$id"; then state=blocked; detail="unrelated history on claude/change-$id"; fi
     if [ "$state" = ready ] || [ "$state" = stackable ] && [ "${OFFLINE:-0}" != 1 ]; then
       h=$(bash "$here/run-lock.sh" holder "status-check" "$id" 2>/dev/null) || h="lock state unknown"  # fail closed
       [ -n "$h" ] && { state=claimed; detail="$h"; }

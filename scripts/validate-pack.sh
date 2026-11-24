@@ -11,7 +11,7 @@ for k in project owner.login repos.harness repos.plan commands.quick commands.ci
 done
 jq -e '(.repos.code|type)=="array" and (.repos.code|length)>0' "$f" >/dev/null || bad "repos.code must be a non-empty list"
 # every role named by a channel, default_worker or debate must exist (owner is implicit)
-missing=$(jq -r '. as $c | [ ($c.channels[]|(.from//[])[], (.between//[])[], (.escalate_to//empty), (.to//empty), (.on_close//empty), (.on_reply//empty)), $c.default_worker ]
+missing=$(jq -r '. as $c | [ ($c.channels[]|(.from//[])[], (.between//[])[], (.escalate_to//empty), (.to//empty|arrays[], strings), (.on_close//empty), (.on_reply//empty)), $c.default_worker ]
   | map(select(. != null and . != "owner" and . != "raiser")) | unique[] | select(. as $r | $c.roles|has($r)|not)' "$f")
 [ -z "$missing" ] || bad "roles used but not defined: $(echo "$missing" | tr '\n' ' ')"
 jq -e '[.roles[]|.secret]|all(test("^[A-Z][A-Z0-9_]*$"))' "$f" >/dev/null || bad "roles.*.secret must be an environment variable NAME, never a token"

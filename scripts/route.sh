@@ -34,7 +34,7 @@ if [ "${1:-}" = selftest ]; then
     "needs-owner":    {"from": ["lead"], "to": "owner", "on_reply": "raiser", "on_close": "worker-a"},
     "debate":         {"between": ["pm", "lead"], "turns": 3, "escalate_to": "lead"},
     "needs-research": {"from": ["lead", "pm", "worker-a"], "to": "research", "on_close": "raiser"},
-    "needs-work":     {"from": ["worker-a", "worker-b", "worker-c"], "to": "pm", "on_close": "raiser"}
+    "needs-work":     {"from": ["worker-a", "worker-b", "worker-c"], "to": ["pm", "lead"], "on_close": "raiser"}
   },
   "default_worker": "worker-a",
   "dispatch": {"workers": ["worker-a", "worker-b", "worker-c"]},
@@ -187,7 +187,7 @@ event() { # <event.json>; GITHUB_EVENT_NAME says which event it is
         labeled)
           l=$(jq -r .label.name "$ev")
           if [ "$l" = debate ]; then debate_input "$n" | decide | awk -v n="$n" '$1=="wake"{r=$2; sub(/^wake [a-z0-9-]+ /,""); print r "\tdebate #" n ": " $0}'
-          else to=$(cfgq --arg l "$l" '. as $c|$c.channels[$l].to // empty|select(($c.roles[.] // {})|has("trigger"))'); [ -n "$to" ] && printf '%s\t%s #%s opened\n' "$to" "$l" "$n"; fi ;;
+          else for to in $(cfgq --arg l "$l" '. as $c|$c.channels[$l].to // empty|(arrays[], strings)|select(($c.roles[.] // {})|has("trigger"))'); do printf '%s\t%s #%s opened\n' "$to" "$l" "$n"; done; fi ;;
         closed)
           for l in $labels; do
             to=$(resolve "$(cfgq --arg l "$l" '.channels[$l].on_close // empty')" "$ev"); [ -n "$to" ] && printf '%s\t%s #%s closed\n' "$to" "$l" "$n"
@@ -330,7 +330,7 @@ no role marker"
   # no tag: the role that raised the issue gets the reply, else the lead
   ev 'pm\towner replied on needs-owner #7' issue_comment '{"issue":{"number":7,"body":"x\n<!-- raised-by: pm -->","labels":[{"name":"needs-owner"}]},"comment":{"user":{"login":"boss"},"body":"yes"}}'
   ev 'research\tneeds-research #6 opened' issues '{"action":"labeled","label":{"name":"needs-research"},"issue":{"number":6,"labels":[{"name":"needs-research"}]}}'
-  ev 'pm\tneeds-work #16 opened' issues '{"action":"labeled","label":{"name":"needs-work"},"issue":{"number":16,"labels":[{"name":"needs-work"}]}}'
+  ev 'pm\tneeds-work #16 opened\nlead\tneeds-work #16 opened' issues '{"action":"labeled","label":{"name":"needs-work"},"issue":{"number":16,"labels":[{"name":"needs-work"}]}}'
   ev 'worker-c\tneeds-work #16 closed' issues '{"action":"closed","issue":{"number":16,"body":"<!-- raised-by: worker-c -->","labels":[{"name":"needs-work"}]}}'
   ev 'worker-a\tneeds-rescue #5 closed' issues '{"action":"closed","issue":{"number":5,"body":"<!-- raised-by: worker -->","user":{"login":"acme-worker-a[bot]"},"labels":[{"name":"needs-rescue"}]}}'
   ev 'lead\towner replied on needs-owner #7' issue_comment '{"issue":{"number":7,"body":"<!-- raised-by: optimizer -->","user":{"login":"boss"},"labels":[{"name":"needs-owner"}]},"comment":{"user":{"login":"boss"},"body":"done"}}'

@@ -54,4 +54,8 @@ expect g1-gated "parked owner #9" "9 gate Approve the g1-gated cost brief"; rm -
 [ "$(BLOCKERS='7 owner w1-site' run --ready | tr '\n' ' ')" = "s2-crypto k1-api k2-ui " ] && ok "--ready lists only takeable changes" || no "--ready"
 # Unwritten rows whose Needs are archived or fully ticked on a branch; written rows (s1) never.
 [ "$(run --plannable | tr '\n' ' ')" = "n1-new n3-on-s1 n4-on-contract " ] && ok "--plannable lists unwritten rows that can start" || no "--plannable, got '$(run --plannable | tr '\n' ' ')'"
+# A code-repo change branch with history unrelated to main is not takeable.
+git -C "$C" -c user.email=t@t -c user.name=t commit -q --allow-empty -m main; git -C "$C" update-ref refs/remotes/origin/main HEAD
+git -C "$C" update-ref refs/remotes/origin/claude/change-w1-site "$(git -C "$C" -c user.email=t@t -c user.name=t commit-tree -m orphan "$(git -C "$C" mktree </dev/null)")"
+expect w1-site "blocked unrelated history on claude/change-w1-site"
 echo "change-status.test: $pass passed, $failn failed"; [ "$failn" = 0 ]

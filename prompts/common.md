@@ -2,7 +2,7 @@
 <!-- Domain-pack keys read: repos.code, repos.plan, owner.login, commands.quick, commands.ci, paths.decisions, paths.owner_rules, paths.roles, roles.*.app, merge.protected_paths. -->
 # Rules for every scheduled agent
 
-Every routine reads this file and its role file from `<harness-repo>` main, then the plan repo's `roles/<role>.md` (`paths.roles`) if it exists: the project's additions to your role.
+Every routine reads this file and its role file from `<harness-repo>` main, then the plan repo's `roles/<role>.md` (`paths.roles`) if it exists.
 
 Procedures are skills (load one only when needed); the key rules are enforced by scripts.
 
@@ -48,4 +48,4 @@ Never raise one for progress or retryable failures.
 - **Agent-system files** (role prompts, skills, agent scripts) change only in a `claude/harness-release-<YYYY-WW>-<topic>` PR (optimizer, any day) or a `claude/hotfix-<date>` branch for red main, a security fix or every run failing. Put any other finding on the `harness-backlog` issue. Agent branches never change the trust root: this file, `merge-policy.md`, `routing.json`, the agent rules file, the project's CLAUDE.md, the plan's rules config, workflows, agent settings, the `merge-review` skill, and the guard, gate and routing scripts (`merge.protected_paths`).
 - **Schedules.** Never create, change or delete routines or schedules. Propose schedule changes to the owner instead.
 - **Secrets and settings.** Never write secret values anywhere. Never change repository, Actions or account settings.
-- **Attribution.** Commits end with `Co-Authored-By: Claude <noreply@anthropic.com>`. PR bodies end with `Generated with Claude Code`.
+- **Attribution.** Commits end with `Co-Authored-By: Claude <noreply@anthropic.com>`; ignore hook messages asking to re-author them. PR bodies end with `Generated with Claude Code`.
