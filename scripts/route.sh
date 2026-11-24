@@ -22,7 +22,7 @@ if [ "${1:-}" = selftest ]; then
   "project": "acme", "owner": {"login": "boss"},
   "repos": {"plan": "acme-org/acme-plan", "code": ["acme-org/acme"]},
   "roles": {
-    "lead":     {"app": "acme-lead",     "trigger": "trig_lead", "secret": "LEAD_FIRE_TOKEN", "batched": true, "logins": ["acme-old-lead[bot]"]},
+    "lead":     {"name": "Iron Man", "app": "acme-lead",     "trigger": "trig_lead", "secret": "LEAD_FIRE_TOKEN", "batched": true, "logins": ["acme-old-lead[bot]"]},
     "worker-a": {"app": "acme-worker-a", "trigger": "trig_wa",   "secret": "WORKER_A_FIRE_TOKEN"},
     "worker-b": {"app": "acme-worker-b", "trigger": "trig_wb",   "secret": "WORKER_B_FIRE_TOKEN"},
     "worker-c": {"app": "acme-worker-c", "trigger": "trig_wc",   "secret": "WORKER_C_FIRE_TOKEN"},
@@ -112,11 +112,12 @@ role_of() { # <login>: the agent role whose login ("<app>[bot]" or roles.<role>.
   cfgq --arg l "$1" '[.roles|to_entries[]|select(((.value.app // "") + "[bot]") == $l or ((.value.logins // [])|index($l)))|.key][0] // empty'
 }
 
-tags_of() { # <comment body>: roles named by @<project>-<role> or @<org>/<role> handles, plus the optional .mentions map (aliases)
+tags_of() { # <comment body>: roles named by @<project>-<role> or @<org>/<role> handles, each role's slugified .name (@acme-iron-man), plus the optional .mentions map (aliases)
   jq -r --arg b "$1" --arg p "@$project-" --arg o "@$org/" '
-    . as $c | [$b | ascii_downcase | scan("@[a-z0-9_./-]+") | sub("[-./]+$"; "")] | unique[] as $t |
+    . as $c |
+    ([$c.roles | to_entries[] | select(.value.name) | {key: (.value.name | ascii_downcase | gsub("[^a-z0-9]+"; "-") | sub("^-+|-+$"; "")), value: .key}] | from_entries) as $al | [$b | ascii_downcase | scan("@[a-z0-9_./-]+") | sub("[-./]+$"; "")] | unique[] as $t |
     ($t | if startswith($o) then .[($o|length):] elif startswith($p) then .[($p|length):] else empty end) as $n |
-    ($c.mentions[$t] // (if $c.roles[$n] then $n else empty end))' "$cfg"
+    ($c.mentions[$t] // (if $c.roles[$n] then $n else empty end) // $al[$n] // empty)' "$cfg"
 }
 
 # "raiser" means the role named by "<!-- raised-by: <role> -->" in the issue body, else the role of the
@@ -325,6 +326,7 @@ no role marker"
   ev 'lead\towner tagged you on #3 in acme-org/code: u' issue_comment '{"repository":{"full_name":"acme-org/code"},"issue":{"number":3,"labels":[]},"comment":{"html_url":"u","user":{"login":"boss"},"body":"@acme-lead look"}}'
   ev '' issue_comment '{"repository":{"full_name":"acme-org/code"},"issue":{"number":3,"labels":[{"name":"needs-owner"}]},"comment":{"user":{"login":"boss"},"body":"approved"}}'
   ev 'worker-c\towner tagged you on #8: u' issue_comment '{"issue":{"number":8,"labels":[],"pull_request":{}},"comment":{"html_url":"u","user":{"login":"boss"},"body":"@acme-worker-c rebase please"}}'
+  ev 'lead\towner tagged you on #8: u' issue_comment '{"issue":{"number":8,"labels":[]},"comment":{"html_url":"u","user":{"login":"boss"},"body":"@acme-iron-man and @Acme-Org/Iron-Man: look"}}'
   ev 'lead\towner tagged you on #8: u\nworker-b\towner tagged you on #8: u' issue_comment '{"issue":{"number":8,"labels":[],"pull_request":{}},"comment":{"html_url":"u","user":{"login":"boss"},"body":"@acme-org/lead and @acme-org/worker-b: look"}}'
   ev '' issue_comment '{"issue":{"number":8,"labels":[]},"comment":{"user":{"login":"boss"},"body":"<!-- agent -->\n@acme-lead"}}'
   ev '' issue_comment '{"issue":{"number":8,"labels":[]},"comment":{"user":{"login":"stranger"},"body":"@acme-lead"}}'

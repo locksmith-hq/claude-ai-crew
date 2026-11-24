@@ -6,7 +6,7 @@
 #   CREW_HARNESS_DIR  this harness checkout
 #   CREW_PLAN_DIR     the plan repo checkout (holds crew.json, roadmap, changes, rules, lessons)
 #   CREW_CODE_DIR     the code repo checkout the agents change (first entry of repos.code)
-#   CREW_CONFIG       path to crew.json
+#   CREW_CONFIG       path to the effective config: the org's crew.json merged over crew.defaults.json
 #   PLAN_REPO / CODE_REPO   "owner/name" for GitHub API calls
 #   OWNER_LOGIN, QUICK_CHECK, FULL_CI, and the PATH_* variables below
 # Plan repo = coordination: change-tracking issues, locks, help channels, plan files.
@@ -43,6 +43,15 @@ if [ -z "${CREW_CONFIG:-}" ]; then
   else crew_die "no crew.json: set CREW_CONFIG or CREW_PLAN_DIR"; fi
 fi
 [ -f "$CREW_CONFIG" ] || crew_die "CREW_CONFIG does not exist: $CREW_CONFIG"
+# The org's crew.json holds overrides only: merge it over $CREW_HARNESS_DIR/crew.defaults.json (objects merge
+# recursively, arrays and scalars of the org file replace) into one temp file that every script reads as CREW_CONFIG.
+# The plan dir is taken from the org file first, so it does not follow CREW_CONFIG to the temp dir.
+CREW_PLAN_DIR="${CREW_PLAN_DIR:-$(cd "$(dirname "$CREW_CONFIG")" && pwd)}"
+if [ -f "$CREW_HARNESS_DIR/crew.defaults.json" ] && [ "${CREW_CONFIG_MERGED:-}" != "$CREW_CONFIG" ]; then
+  _crew_m=$(mktemp "${TMPDIR:-/tmp}/crew-config.XXXXXX") || crew_die "cannot create the merged config"
+  jq -s '.[0] * .[1]' "$CREW_HARNESS_DIR/crew.defaults.json" "$CREW_CONFIG" >"$_crew_m" || { rm -f "$_crew_m"; crew_die "invalid JSON in $CREW_CONFIG or crew.defaults.json"; }
+  CREW_CONFIG=$_crew_m; CREW_CONFIG_MERGED=$_crew_m; export CREW_CONFIG_MERGED; unset _crew_m
+fi
 export CREW_CONFIG
 
 # crew_get <jq filter> [default]: prints the value or the default
@@ -55,7 +64,6 @@ PATH_DECISIONS=$(crew_get '.paths.decisions' decisions.md); PATH_OWNER_RULES=$(c
 PATH_LESSONS=$(crew_get '.paths.lessons' lessons.md); PATH_ROADMAP=$(crew_get '.paths.roadmap' roadmap.md)
 PATH_CHANGES=$(crew_get '.paths.changes' changes/)
 
-CREW_PLAN_DIR="${CREW_PLAN_DIR:-$(dirname "$CREW_CONFIG")}"
 CREW_CODE_DIR="${CREW_CODE_DIR:-$(crew_find_repo "$CODE_REPO" || true)}"
 [ -n "$CREW_CODE_DIR" ] || CREW_CODE_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 export CREW_HARNESS_DIR CREW_PLAN_DIR CREW_CODE_DIR PLAN_REPO CODE_REPO OWNER_LOGIN QUICK_CHECK FULL_CI \

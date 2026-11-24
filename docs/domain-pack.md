@@ -3,7 +3,20 @@
 Everything the harness needs to know about your project lives in a **domain pack**: a `crew.json` file in
 your plan repo, plus the rules and plan files it points at. The harness never hardcodes a project.
 
-## `crew.json`
+## `crew.json` holds overrides only
+
+The harness ships `crew.defaults.json` (the generic crew: role keys `lead`, `pm`, `research`, `worker-a/b/c`
+with their batched flags, the help channels, the debate cap, the dispatch defaults). Your plan repo's `crew.json`
+is merged over it (`scripts/lib/crew-env.sh`): objects merge recursively, arrays and scalars in your file
+replace the default. So a minimal `crew.json` is the owner, the repos and what is yours, for example
+`roles.<role>.name`, `.app`, `.trigger`, `.secret`. The listing below is the full form (what the merged file
+looks like); you only need to write the parts that differ from the defaults.
+
+Handles: `@<project>-<role>` and `@<org>/<role>` wake a role; a role's optional `name` adds
+`@<project>-<slug>` and `@<org>/<slug>` (lowercase, spaces to `-`: name "Iron Man" gives `@acme-iron-man`).
+Keep names, logins, repo names and ids in your `crew.json`, never in the harness.
+
+## Full `crew.json`
 
 ```json
 {
@@ -188,7 +201,8 @@ your plan repo, plus the rules and plan files it points at. The harness never ha
 | `review.default_tier` | The tier name for PRs no tier's `paths` match (required with `review.tiers`; its `paths` may be empty) |
 | `review.skip_globs` | Optional globs of paths that need no model review (docs, planning). When every changed file matches, `merge-ready` passes on CI and the other checks alone. `!glob` keeps a path reviewed, last match wins. Globs: `*` also crosses `/`, a trailing `/` is a whole directory |
 | `preflight` | Optional list of tool checks run at the start of every run: `{name, cmd, fix, level, hint, wait}`. A failing `cmd` runs `fix` in the code checkout and polls `cmd` for `wait` seconds (default 20). `level` is `warn` or `fail` (default `fail`). `$SUDO` is empty as root, otherwise `sudo -n` |
-| `mentions` | Optional map of wake handles to roles; defaults to `@<project>-<role>` |
+| `mentions` | Optional map of extra wake handles to roles; the defaults are `@<project>-<role>`, `@<org>/<role>` and, for a role with a `name`, `@<project>-<slug>` and `@<org>/<slug>` |
+| `roles.<role>.name` | Optional display name of the role; its slug is a wake handle (see above) |
 | `schedules` | Optional: `avoid_hours_utc` (weekday UTC hours no worker runs, default 15 to 20) and `roles.<role>` overrides (`cron` list, `enabled: false`). Schedules are generated from the roles and these settings by `crew schedules` |
 | `roles.<role>.app_id` | Optional: the role's GitHub App id (public). Set it: the lookup fallback fails in cloud sessions |
 | `roles.<role>.bot_id` | Optional but needed in cloud sessions: the bot account's user id (public; `gh api users/<app>%5Bbot%5D -q .id`), used for the commit noreply email. Without it `agent-identity.sh` looks it up with `GET /users/<bot>`, which a cloud session proxy refuses (403), so run-start fails with "cannot look up the bot user id" |
