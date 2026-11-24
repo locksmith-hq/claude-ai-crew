@@ -17,7 +17,7 @@ jq -n '{repos:{plan:"acme/plan",code:["acme/app"]},paths:{roadmap:"roadmap.md",c
 git add -A; git commit -qm base
 # s5-orph's code branch shares no history with main.
 git -C "$C" init -q; git -C "$C" -c user.email=t@t -c user.name=t commit -q --allow-empty -m main; git -C "$C" update-ref refs/remotes/origin/main HEAD
-git -C "$C" update-ref refs/remotes/origin/claude/change-s5-orph "$(git -C "$C" commit-tree -m orphan "$(git -C "$C" mktree </dev/null)")"
+git -C "$C" update-ref refs/remotes/origin/claude/change-s5-orph "$(git -C "$C" -c user.email=t@t -c user.name=t commit-tree -m orphan "$(git -C "$C" mktree </dev/null)")"
 
 run() { env CREW_PLAN_DIR="$P" CREW_CODE_DIR="$C" OFFLINE=1 BLOCKERS="9 gate s3-gated cost brief" bash "$script"; }
 check() { [ "$(run)" = "$(printf '%b' "$2")" ] && ok "$1" || no "$1: got '$(run)'"; }
