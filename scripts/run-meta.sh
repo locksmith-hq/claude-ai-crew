@@ -51,6 +51,7 @@ case "${1:-}" in
     echo "run-meta: started ${2:-unknown}"
     ;;
   report)
+    bash "$(dirname "$0")/agent-heartbeat.sh" stop 2>/dev/null || true
     if [ -f "$state" ]; then
       # shellcheck disable=SC1090
       . "$state"
