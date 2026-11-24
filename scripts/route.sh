@@ -172,6 +172,8 @@ event() { # <event.json>; GITHUB_EVENT_NAME says which event it is
   case "${GITHUB_EVENT_NAME:?}" in
     workflow_run)
       local wf concl br trig pr sha
+      # PR and status lookups go to the repo the run came from, not repos.code[0]: a crew can have several code repos.
+      CODE_REPO=$(jq -r --arg d "$CODE_REPO" '.repository.full_name // $d' "$ev")
       read -r wf concl br trig pr sha < <(jq -r '.workflow_run|[.name, .conclusion, .head_branch, .event, (.pull_requests[0].number // ""), (.head_sha // "")]|@tsv' "$ev")
       if [ "$wf" = "$ci_wf" ] && [ "$concl" = failure ]; then
         if [ "$br" = main ]; then printf '%s\tCI failed on main\n' lead
