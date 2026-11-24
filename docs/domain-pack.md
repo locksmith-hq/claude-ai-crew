@@ -177,6 +177,10 @@ your plan repo, plus the rules and plan files it points at. The harness never ha
 | `schedules` | Optional: `avoid_hours_utc` (weekday UTC hours no worker runs, default 15 to 20) and `roles.<role>` overrides (`cron` list, `enabled: false`). Schedules are generated from the roles and these settings by `crew schedules` |
 | `roles.<role>.app_id` | Optional: the role's GitHub App id (public). Set it: the lookup fallback fails in cloud sessions |
 | `roles.<role>.key_env` / `id_env` | Optional: the names of the environment variables holding that role's App key and App id, when your environment already uses other names than `AGENT_APP_KEY_<ROLE>` / `AGENT_APP_ID_<ROLE>`. The App id is taken from `roles.<role>.app_id` (public, preferred), else the id variable, else looked up from the public `GET /apps/<slug>` (unreliable in cloud sessions: shared-IP rate limits and proxies) |
+| `roles.<role>.logins` | Optional: older GitHub logins of the role (for example `old-app[bot]` after an App rename), so earlier PRs and comments still map to it |
+| `roles.<role>.batched` | Optional, `true` for expensive roles: only an owner tag wakes them at once; other wakes label the issue `wake-<role>` and the wake workflow's tick (a `workflow_dispatch` every 2 h) fires the role once for its queue |
+| `dispatch` | Optional: workers fired by an external dispatcher instead of events. `workers` lists them (the wake workflow then fires them only for an owner tag); `slots`, `max_5h`, `max_day`, `run_minutes` are its budget, read by the dispatcher and the PM |
+| `paths.roles` | Optional folder (default `roles/`) of project additions to a role prompt: `<role>.md` is read after the harness role file |
 | `channels` | Who may open which help channel and who is woken (same shape the routing script reads) |
 | `default_worker` | The worker woken when nothing names one (for example red main CI) |
 | `trust_root` | Paths that agents may never change on their own branches |

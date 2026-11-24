@@ -31,8 +31,9 @@ add_comment() { # <issue> <body> <epoch>
   jq --arg b "$2" --arg t "$(iso "$3")" '. + [{id: (length + 1), created_at: $t, body: $b}]' "$f" >"$f.n" && mv "$f.n" "$f"
 }
 case "$method $ep" in
-  "GET repos/acme/plan/issues?labels=change"*) out <"$STUB_DIR/issues.json" ;;
-  "GET repos/acme/plan/issues/"*/comments*) n=${ep#repos/acme/plan/issues/}; n=${n%%/*}; { cat "$STUB_DIR/comments-$n.json" 2>/dev/null || echo '[]'; } | out ;;
+  "GET repos/acme/plan/issues?labels=change"*) [ "${STUB_FAIL:-}" = lookup ] && exit 1; out <"$STUB_DIR/issues.json" ;;
+  "GET repos/acme/plan/issues/"*/comments*) [ "${STUB_FAIL:-}" = comments ] && exit 1
+    n=${ep#repos/acme/plan/issues/}; n=${n%%/*}; { cat "$STUB_DIR/comments-$n.json" 2>/dev/null || echo '[]'; } | out ;;
   "POST repos/acme/plan/issues/"*/comments)
     n=${ep#repos/acme/plan/issues/}; n=${n%%/*}
     [ -n "${STUB_RACE:-}" ] && add_comment "$n" "LOCK $STUB_RACE" $((now - 1))  # a rival whose LOCK lands just before ours
@@ -59,7 +60,7 @@ RL acquire a c1 >/dev/null; [ "$?" = 0 ] && [ "$(bodies 1)" = "LOCK a" ] && ok "
 [ "$(RL holder x c1)" = a ] && ok "holder prints the holder" || no "holder prints the holder"
 out=$(RL acquire b c1); [ "$?" = 1 ] && grep -q busy <<<"$out" && ok "second holder is told busy" || no "second holder is told busy: $out"
 out=$(RL acquire a c1); [ "$?" = 0 ] && grep -q 'already held' <<<"$out" && [ "$(bodies 1)" = "LOCK a" ] && ok "re-acquire by the holder is a no-op" || no "re-acquire: $out"
-RL release b c1 >/dev/null; [ "$(bodies 1)" = "LOCK a" ] && ok "release by a non-holder does nothing" || no "release by non-holder: $(bodies 1)"
+err=$(RL release b c1 2>&1 >/dev/null); [ "$(bodies 1)" = "LOCK a" ] && grep -q 'not released: c1 is held by a, not b' <<<"$err" && ok "release by a non-holder does nothing and warns on stderr" || no "release by non-holder: $(bodies 1) $err"
 RL release a c1 >/dev/null; [ "$(bodies 1)" = "LOCK a|UNLOCK a" ] && [ -z "$(RL holder x c1)" ] && ok "release by the holder frees it" || no "release: $(bodies 1)"
 RL acquire b c1 >/dev/null; [ "$?" = 0 ] && [ "$(RL holder x c1)" = b ] && ok "another holder acquires after release" || no "acquire after release"
 
@@ -84,6 +85,18 @@ reset; ENVX=(STUB_RACE=rival); out=$(RL acquire a c1); rc=$?; ENVX=(X=1); [ "$rc
 reset; ENVX=(CLAUDE_CODE_SESSION_ID=s1); RL acquire w c1 >/dev/null
 [ "$(bodies 1)" = "LOCK w@s1" ] && ok "session id is appended to the holder" || no "session id: $(bodies 1)"
 ENVX=(CLAUDE_CODE_SESSION_ID=s2); RL acquire w c1 >/dev/null; [ "$?" = 1 ] && ok "same name, other session: busy" || no "same name, other session"
+# a release under another prefix but the same session frees the lock (agents vary the prefix); another session's does not
+ENVX=(CLAUDE_CODE_SESSION_ID=s2); RL release other c1 >/dev/null 2>&1; [ "$(RL holder x c1)" = w@s1 ] && ok "another session cannot release" || no "other session released"
+ENVX=(CLAUDE_CODE_SESSION_ID=s1); out=$(RL release w-renamed c1 2>/dev/null); [ "$out" = "run-lock: released" ] && [ "$(bodies 1)" = "LOCK w@s1|UNLOCK w@s1" ] && ok "release by session id under another prefix" || no "release by session id: $out $(bodies 1)"
+out=$(RL acquire w-other c1); RL acquire w-again c1 >/dev/null; [ "$?" = 0 ] && grep -q 'acquired by w-other@s1' <<<"$out" && ok "same session, other prefix: already held" || no "same session re-acquire: $out"
+ENVX=(X=1)
+
+# GitHub unreadable: the lock state is unknown (exit 3), never free
+reset; RL acquire a c1 >/dev/null
+ENVX=(STUB_FAIL=comments); out=$(RL holder x c1 2>/dev/null); rc=$?; [ "$rc" = 3 ] && [ -z "$out" ] && ok "holder exits 3 when comments cannot be read" || no "holder unreadable: rc=$rc $out"
+RL acquire b c1 >/dev/null 2>&1; [ "$?" = 3 ] && ok "acquire exits 3 when comments cannot be read" || no "acquire unreadable"
+ENVX=(STUB_FAIL=lookup); RL holder x c1 >/dev/null 2>&1; [ "$?" = 3 ] && ok "holder exits 3 when the issue lookup fails" || no "holder lookup failure"
+RL acquire b c1 >/dev/null 2>&1; [ "$?" = 3 ] && ok "acquire exits 3 when the issue lookup fails" || no "acquire lookup failure"
 ENVX=(X=1)
 
 # no issue yet: holder and release are quiet no-ops, acquire creates the issue for a known id, rejects unknown ones

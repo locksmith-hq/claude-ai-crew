@@ -5,6 +5,8 @@
 #                                    on any failure undoes them, prints FAIL and exits 1
 #   agent-identity.sh token          prints a valid installation token (cached, re-minted after 50 minutes)
 #   agent-identity.sh credential get git credential helper
+#   agent-identity.sh keyvar <role>  the name of the variable that holds the role's App key (never its value)
+#   agent-identity.sh logins [role]  the role's GitHub logins, one per line (default: the recorded persona)
 #   agent-identity.sh selftest       offline checks
 # Per role (ROLE = the role key upper-cased, "-" -> "_"):
 #   AGENT_APP_ID_<ROLE>   the App id (not secret)
@@ -29,6 +31,12 @@ jwt() { # <app_id> <pem-file>
   p=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now - 30)) $((now + 300)) "$1" | b64url)
   printf '%s.%s.%s' "$h" "$p" "$(printf '%s.%s' "$h" "$p" | openssl dgst -sha256 -sign "$2" | b64url)"
 }
+# keyvar <role>: the key variable: roles.<role>.key_env when it is set in this environment, else AGENT_APP_KEY_<ROLE>
+# when that one is set (an environment moved to the role names keeps working), else key_env or the default name.
+keyvar() {
+  local d k; d="AGENT_APP_KEY_$(role_var "$1")"; k=$(crew_get ".roles[\"$1\"].key_env" "$d")
+  if [ -z "${!k:-}" ] && [ -n "${!d:-}" ]; then echo "$d"; else echo "$k"; fi
+}
 why() { printf '%s' "$1" >"$state/why"; }
 # app_jwt <role>: prints a fresh App JWT. Each failure records its cause in $state/why, so the WARN line says what to fix.
 app_jwt() {
@@ -37,7 +45,7 @@ app_jwt() {
   # crew.json may name the variables (roles.<role>.key_env / id_env), so a project that already stores App keys under
   # other names (for example per-persona names) keeps its environment unchanged.
   local kv iv
-  kv=$(crew_get ".roles[\"$role\"].key_env" "AGENT_APP_KEY_$rv"); iv=$(crew_get ".roles[\"$role\"].id_env" "AGENT_APP_ID_$rv")
+  kv=$(keyvar "$role"); iv=$(crew_get ".roles[\"$role\"].id_env" "AGENT_APP_ID_$rv")
   app="${!iv:-}"
   # The App id is public: crew.json can carry it (roles.<role>.app_id). Preferred: a cloud session shares an IP, so an
   # unauthenticated lookup hits GitHub's rate limit, and a session proxy refuses the path (both observed).
@@ -168,6 +176,8 @@ selftest() {
   pad "$s" | openssl base64 -d -A >"$d/sig"
   printf '%s.%s' "$h" "$p" | openssl dgst -sha256 -verify "$d/k.pub" -signature "$d/sig" >/dev/null || { echo "selftest: bad signature"; exit 1; }
   [ "$(role_var worker-a)" = WORKER_A ] || { echo "selftest: role variable name"; exit 1; }
+  [ "$(env -u AGENT_APP_KEY_ZZ_NONE bash "$self" keyvar zz-none)" = AGENT_APP_KEY_ZZ_NONE ] || { echo "selftest: default key variable"; exit 1; }
+  crew_role_logins "$role" | grep -qxF "$(crew_role_login "$role")" || { echo "selftest: logins lack the App login"; exit 1; }
   state="$d/s"; mkdir "$state"; printf '%s' "$role" >"$state/persona"
   local rv; rv=$(role_var "$role")
   # a bad key is refused, with its cause recorded
@@ -191,8 +201,10 @@ selftest() {
 
 case "${1:-}" in
   setup) setup "${2:?usage: agent-identity.sh setup <role>}" ;;
+  keyvar) keyvar "${2:?usage: agent-identity.sh keyvar <role>}" ;;
+  logins) p=${2:-$(cat "$state/persona" 2>/dev/null)}; crew_role_logins "${p:?usage: agent-identity.sh logins <role>}" ;;  # later shells lose $AGENT_PERSONA
   token) token ;;
   credential) [ "${2:-}" = get ] && t=$(token) && printf 'username=x-access-token\npassword=%s\n' "$t" ;;
   selftest) selftest ;;
-  *) echo "usage: agent-identity.sh setup <role> | token | credential get | selftest" >&2; exit 2 ;;
+  *) echo "usage: agent-identity.sh setup <role> | keyvar <role> | logins [role] | token | credential get | selftest" >&2; exit 2 ;;
 esac

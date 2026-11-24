@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # Open needs-owner issues (in the plan repo) whose latest comment is the owner's own (not agent-written):
 # the lead answers each one (first step of the lead prompt). Prints one issue number per line.
+# With <role>, skips issues whose `<!-- raised-by: x -->` names another role (an optimizer issue is not the lead's).
+#   scripts/owner-replies.sh [role]
 set -uo pipefail
 . "$(dirname "$0")/lib/crew-env.sh"
+role="${1:-}"
 for i in $(gh api "repos/$PLAN_REPO/issues?labels=needs-owner&state=open" -q '.[].number'); do
+  if [ -n "$role" ]; then
+    by=$(gh api "repos/$PLAN_REPO/issues/$i" -q '(.body // "") | capture("<!-- raised-by: (?<r>[a-z0-9-]+) -->")?.r // ""')
+    [ -n "$by" ] && [ "$by" != "$role" ] && continue
+  fi
   last=$(gh api "repos/$PLAN_REPO/issues/$i/comments?per_page=100" -q '[.[]]|last|select(.!=null)|[.user.login, .body]|@json')
   [ -n "$last" ] || continue
   who=$(jq -r '.[0]' <<<"$last"); body=$(jq -r '.[1]' <<<"$last")

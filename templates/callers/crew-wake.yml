@@ -13,11 +13,13 @@ on:
   workflow_run:
     workflows: [ci, crew-review]
     types: [completed]
+  workflow_dispatch: {}  # the tick for batched roles: send it every 2 h from a clock, or add `schedule: [{cron: '7 */2 * * *'}]`
 
 permissions:
   contents: read
-  issues: read
-  pull-requests: read
+  issues: write
+  pull-requests: write
+  actions: read
 
 jobs:
   wake:
