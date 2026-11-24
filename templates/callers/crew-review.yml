@@ -1,5 +1,8 @@
 # Installed by `crew init` in each CODE repo. Provides the `merge-ready` status: make it a required check on the
-# default branch. Needs the CLAUDE_CODE_OAUTH_TOKEN secret (and CREW_REPO_TOKEN when the plan repo is private).
+# default branch. No logic here: the checks, reviewer tiers and allowed bots come from the harness and crew.json.
+# Needs the CLAUDE_CODE_OAUTH_TOKEN secret. When the plan repo is private, also the CREW_APP_ID variable plus the
+# CREW_APP_KEY secret (the crew's GitHub App), or a CREW_REPO_TOKEN secret that can read the plan repo.
+# Optional `with:` inputs: model (used when crew.json has no review.tiers, and as the fallback), max_turns, mention.
 name: crew-review
 
 on:

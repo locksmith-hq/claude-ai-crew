@@ -172,6 +172,9 @@ your plan repo, plus the rules and plan files it points at. The harness never ha
 | `commands.free_disk` / `commands.free_disk_skip_if_running` | Command that frees build caches when disk runs low (`BG_MIN_FREE_GB`, default 8), and a process name that blocks it while running |
 | `stack_checks` | Optional list of `{name, cmd}` checks of your local stack; `harness-check.sh` prints PASS/FAIL for each |
 | `review.checklist` | Optional list of extra rules the independent reviewer must check on every PR (project-specific security or style rules) |
+| `review.tiers` | Optional list of reviewer tiers, strongest first: `{name, model, paths, description}`. The first tier whose `paths` globs match any changed file picks the review model (`scripts/review-tier.sh`). Without it every review uses the review workflow's `model` input |
+| `review.default_tier` | The tier name for PRs no tier's `paths` match (required with `review.tiers`; its `paths` may be empty) |
+| `review.skip_globs` | Optional globs of paths that need no model review (docs, planning). When every changed file matches, `merge-ready` passes on CI and the other checks alone. `!glob` keeps a path reviewed, last match wins. Globs: `*` also crosses `/`, a trailing `/` is a whole directory |
 | `preflight` | Optional list of tool checks run at the start of every run: `{name, cmd, fix, level, hint, wait}`. A failing `cmd` runs `fix` in the code checkout and polls `cmd` for `wait` seconds (default 20). `level` is `warn` or `fail` (default `fail`). `$SUDO` is empty as root, otherwise `sudo -n` |
 | `mentions` | Optional map of wake handles to roles; defaults to `@<project>-<role>` |
 | `schedules` | Optional: `avoid_hours_utc` (weekday UTC hours no worker runs, default 15 to 20) and `roles.<role>` overrides (`cron` list, `enabled: false`). Schedules are generated from the roles and these settings by `crew schedules` |

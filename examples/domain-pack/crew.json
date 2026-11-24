@@ -51,7 +51,23 @@
   "review": {
     "checklist": [
       "No secret or credential is added to the repo or logged"
-    ]
+    ],
+    "tiers": [
+      {
+        "name": "opus",
+        "model": "claude-opus-5-5",
+        "description": "Code that handles secrets, and the trust root",
+        "paths": ["src/auth/", ".github/", "crew.json"]
+      },
+      {
+        "name": "sonnet",
+        "model": "claude-sonnet-5-5",
+        "description": "All other code",
+        "paths": []
+      }
+    ],
+    "default_tier": "sonnet",
+    "skip_globs": ["docs/", "changes/", "!*/tasks.md"]
   },
   "preflight": [
     {

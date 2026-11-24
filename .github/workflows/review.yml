@@ -6,12 +6,17 @@ name: crew-review-reusable
 # re-runs it. The status is set only here, so a PR whose job never ran has no status and cannot merge (a skipped
 # job counts as passing; a missing status does not). It checks, in order:
 #   1. owner PRs on a non-claude/* branch pass (the owner reviews their own work);
-#   2. owned paths (the default branch's .github/CODEOWNERS, last match wins) need the owner's approval of this head;
-#      an owner review re-runs the job;
+#   2. owned paths (the default branch's .github/CODEOWNERS, last match wins) need the owner's approval of this head
+#      (or of a head with the same PR diff); an owner review re-runs the job;
 #   3. complete: every tasks.md the PR touches is fully ticked, and for a claude/change-<id> branch the plan repo's
 #      branch of the same name has its tasks fully ticked (planning-only PRs exempt);
 #   4. review: an independent Claude review posts "merge-review <sha>: PASS|FAIL"; a PASS for an earlier head still
 #      counts while the PR's own diff (patch-id against the default branch) is unchanged, e.g. after a merge of main.
+#      Only a verdict from the review action's own bot (login claude*) counts, never a role App's comment.
+#   5. reviewer by risk: scripts/review-tier.sh picks the model from the plan repo's crew.json `review.tiers`
+#      (no tiers: the `model` input); `skip` (docs or planning only) passes on CI and the checks above alone.
+#      Both the script (harness_ref) and the config (plan repo default branch) come from outside the PR.
+# A PASS resolves the reviewer's open threads, so the ruleset's thread rule does not keep a passed PR blocked.
 # Plus on-demand @claude mentions from people with write access. Triggers live in templates/callers/crew-review.yml.
 # Call with `secrets: inherit` (needs CLAUDE_CODE_OAUTH_TOKEN; CREW_REPO_TOKEN only for a private plan repo).
 on:
@@ -30,7 +35,7 @@ on:
         type: string
         required: true
       model:
-        description: Reviewer model (the strongest tier)
+        description: Reviewer model when crew.json has no review.tiers, and the fallback when tier selection fails
         type: string
         default: claude-opus-5-5
       max_turns:
@@ -101,8 +106,8 @@ jobs:
             echo "owner=$owner"
             echo "changes=$(jq -r '(.paths.changes // "changes/") | rtrimstr("/")' "$cfg")"
             echo "owner_rules=$(jq -r '.paths.owner_rules // "owner.md"' "$cfg")"
-            # Agent bots are the roles' Apps (their comments must be allowed to trigger the review action).
-            echo "bots=$(jq -r '[.roles[].app] | join(",")' "$cfg")"
+            # Agent bots: the roles' Apps and their extra logins (their events must be allowed to trigger the review action).
+            echo "bots=$(jq -r '[.roles[] | .app // empty, (.logins // [])[]] | map(sub("\\[bot\\]$"; "")) | unique | join(",")' "$cfg")"
           } >>"$GITHUB_OUTPUT"
           # An owner review of the PR re-runs this job; any other review event is ignored.
           if [ "${{ github.event_name }}" = pull_request_review ] && [ "$REVIEWER" != "$owner" ]; then echo skip=1 >>"$GITHUB_OUTPUT"; fi
@@ -112,6 +117,7 @@ jobs:
           OWNER: ${{ steps.cfg.outputs.owner }}
           CHANGES: ${{ steps.cfg.outputs.changes }}
           PLAN_REPO: ${{ inputs.plan_repo }}
+          MODEL: ${{ inputs.model }}
         run: |
           st() { gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f context=merge-ready -f state="$1" -f description="$2" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null; }
@@ -135,9 +141,16 @@ jobs:
               [ -n "$o" ] && owned="$owned $f"
             done < <(git diff --name-only "origin/$BASE...HEAD")
           fi
+          pid() { git diff "$(git merge-base "origin/$BASE" "$1")" "$1" | git patch-id --stable | cut -d' ' -f1; }
           if [ -n "$owned" ]; then
-            ok=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$N/reviews?per_page=100" --paginate \
-              -q ".[]|select(.user.login==\"$OWNER\" and .state==\"APPROVED\" and .commit_id==\"$SHA\")|.id" | head -1)
+            # An approval holds while the PR's own diff is unchanged (same rule as a review PASS in step 4),
+            # so merging the base branch in does not ask the owner again.
+            ok=""
+            for c in $(gh api "repos/$GITHUB_REPOSITORY/pulls/$N/reviews?per_page=100" --paginate \
+                -q ".[]|select(.user.login==\"$OWNER\" and .state==\"APPROVED\")|.commit_id" | sort -u); do
+              if [ "$c" = "$SHA" ] || { { git cat-file -e "$c^{commit}" 2>/dev/null || git fetch -q origin "$c" 2>/dev/null; } &&
+                 [ "$(pid "$c")" = "$(pid HEAD)" ]; }; then ok=$c; break; fi
+            done
             [ -n "$ok" ] || { st failure "owned paths need the owner's approval:${owned:0:100}"; echo "::error::needs owner approval:$owned"; exit 1; }
           fi
           # 3 complete. Planning-only PRs (in the plan repo, touching only the changes dir) are exempt.
@@ -156,15 +169,22 @@ jobs:
           fi
           # 4 an earlier PASS still applies if the PR's own diff is unchanged
           v=$(gh api "repos/$GITHUB_REPOSITORY/issues/$N/comments?per_page=100" --paginate \
-            -q '.[]|select(.user.type=="Bot")|.body|split("\n")[0]|select(startswith("merge-review "))' | tail -1)
+            -q '.[]|select(.user.type=="Bot" and (.user.login|startswith("claude")))|.body|split("\n")[0]|select(startswith("merge-review "))' | tail -1)
           vsha=$(sed -nE 's/^merge-review ([0-9a-f]{7,40}): PASS.*/\1/p' <<<"$v")
-          pid() { git diff "$(git merge-base "origin/$BASE" "$1")" "$1" | git patch-id --stable | cut -d' ' -f1; }
           if [ -n "$vsha" ] && { git cat-file -e "$vsha^{commit}" 2>/dev/null || git fetch -q origin "$vsha" 2>/dev/null; } &&
              [ "$(pid "$vsha")" = "$(pid HEAD)" ]; then
             st success "review PASS for $vsha still applies"; echo done=1 >>"$GITHUB_OUTPUT"; exit 0
           fi
-          st pending "Claude review running"
+          # 5 reviewer by risk. Any failure (bad config, missing script) falls back to the strongest model, never to skip.
+          t=$(git diff --name-only "origin/$BASE...HEAD" | bash .crew/harness/scripts/review-tier.sh .crew/plan/crew.json) || t="fallback "
+          tier=${t%% *}; model=${t#* }
+          [ "$tier" = skip ] && { st success "no model review: docs or planning only"; echo done=1 >>"$GITHUB_OUTPUT"; exit 0; }
+          [ -n "$model" ] || model=$MODEL
+          echo "model=$model" >>"$GITHUB_OUTPUT"
+          echo "::notice::review tier $tier ($model)"
+          st pending "Claude review running ($tier)"
       - if: steps.cfg.outputs.skip != '1' && steps.pre.outputs.done != '1'
+        id: review
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -179,14 +199,24 @@ jobs:
           show_full_output: true
           allowed_bots: ${{ steps.cfg.outputs.bots }}
           claude_args: >-
-            --model ${{ inputs.model }} --max-turns ${{ inputs.max_turns }}
+            --model ${{ steps.pre.outputs.model }} --max-turns ${{ inputs.max_turns }}
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(git diff:*),Bash(git log:*),mcp__github_inline_comment__create_inline_comment"
+      # Review spend as a check annotation, so token use per PR can be counted from the API.
+      - if: steps.cfg.outputs.skip != '1' && steps.pre.outputs.done != '1' && !cancelled() && steps.review.outputs.execution_file != ''
+        continue-on-error: true
+        env:
+          EXEC: ${{ steps.review.outputs.execution_file }}
+          MODEL: ${{ steps.pre.outputs.model }}
+        run: |
+          u=$(jq -r '[.[]|select(.type == "result")][-1]|"turns=\(.num_turns // "?") in=\(.usage.input_tokens // 0) cache_read=\(.usage.cache_read_input_tokens // 0) cache_write=\(.usage.cache_creation_input_tokens // 0) out=\(.usage.output_tokens // 0) cost_usd=\(.total_cost_usd // "?")"' "$EXEC")
+          echo "::notice title=review usage::model=$MODEL $u"
+          echo "review usage: model=$MODEL $u" >>"$GITHUB_STEP_SUMMARY"
       - if: steps.cfg.outputs.skip != '1' && steps.pre.outputs.done != '1' && !cancelled()
         run: |
           st() { gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f context=merge-ready -f state="$1" -f description="$2" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null; }
           v=$(gh api "repos/$GITHUB_REPOSITORY/issues/$N/comments?per_page=100" --paginate \
-            -q '.[]|select(.user.type=="Bot")|.body|split("\n")[0]|select(startswith("merge-review "))' | tail -1)
+            -q '.[]|select(.user.type=="Bot" and (.user.login|startswith("claude")))|.body|split("\n")[0]|select(startswith("merge-review "))' | tail -1)
           vsha=$(sed -nE 's/^merge-review ([0-9a-f]{7,40}): (PASS|FAIL).*/\1/p' <<<"$v")
           res=$(sed -nE 's/^merge-review ([0-9a-f]{7,40}): (PASS|FAIL).*/\2/p' <<<"$v")
           if [ -z "$vsha" ] || [[ "$SHA" != "$vsha"* ]]; then st error "no review verdict for $SHA"; exit 1; fi
@@ -194,6 +224,19 @@ jobs:
           label=review-passed; [ "$res" = PASS ] || label=review-failed
           gh api "repos/$GITHUB_REPOSITORY/issues/$N/labels" -f "labels[]=$label" >/dev/null
           if [ "$res" = PASS ]; then st success "Claude review PASS"; else st failure "Claude review FAIL: fix the findings and push"; exit 1; fi
+      # A PASS (new, or still applying) covers every earlier finding: resolve the reviewer's open threads, or the
+      # ruleset's thread rule keeps a passed PR blocked with no one owning it.
+      - if: success() && steps.cfg.outputs.skip != '1'
+        run: |
+          # shellcheck disable=SC2016 # $owner etc. are GraphQL variables, not shell
+          gh api graphql --paginate -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F n="$N" -f query='
+            query($owner:String!,$name:String!,$n:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$n){
+              reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
+                nodes{id isResolved comments(first:1){nodes{author{login}}}}}}}}' \
+            -q '.data.repository.pullRequest.reviewThreads.nodes[]|select((.isResolved|not) and .comments.nodes[0].author.login=="claude")|.id' |
+          while read -r t; do
+            gh api graphql -f id="$t" -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' >/dev/null
+          done
 
   # On-demand: the owner, org members and collaborators (author_association; the public cannot trigger it)
   # can ask @claude something in a PR or issue comment.
