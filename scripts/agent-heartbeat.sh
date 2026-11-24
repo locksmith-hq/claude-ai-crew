@@ -23,8 +23,9 @@ case "${1:-}" in
     id=${url##*issuecomment-}; [[ "$id" =~ ^[0-9]+$ ]] || { echo "agent-heartbeat: no comment id in '$url'" >&2; exit 0; }
     echo "$id" > "$idf"
     # setsid/nohup: the loop must outlive agent-start.sh. It ends with the VM, or `stop`.
+    loop=(nohup); command -v setsid >/dev/null && loop=(nohup setsid)
     CREW_PLAN_DIR="$CREW_PLAN_DIR" AGENT_ID_DIR="$dir" AGENT_PERSONA="$persona" \
-      nohup $(command -v setsid || true) bash -c 'while sleep "${CREW_HEARTBEAT_SECONDS:-600}"; do bash "$0" beat || true; done' "$here/agent-heartbeat.sh" >/dev/null 2>&1 &
+      "${loop[@]}" bash -c 'while sleep "${CREW_HEARTBEAT_SECONDS:-600}"; do bash "$0" beat || true; done' "$here/agent-heartbeat.sh" >/dev/null 2>&1 &
     echo $! > "$pidf"
     echo "OK     heartbeat      run-start comment $id, every ${CREW_HEARTBEAT_SECONDS:-600}s"
     ;;
