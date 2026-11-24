@@ -38,7 +38,9 @@ grep -q 'repos/other-org/second-code/commits/abc/statuses' "$W/gh.log" 2>/dev/nu
   && ok "workflow_run looks up the run's own repo" || no "workflow_run repo: $(cat "$W/gh.log" 2>/dev/null)"
 
 # fire without a token: warns and exits 0 instead of calling the network
-out=$(run bash "$R" fire lead "test" 2>&1); rc=$?
+# the defaults make lead batched (queued, no token needed); this case is about the direct wake
+jq '.roles.lead.batched = false' "$CFG" >"$W/unbatched.json"
+out=$(CFG="$W/unbatched.json" run bash "$R" fire lead "test" 2>&1); rc=$?
 [ "$rc" = 0 ] && grep -q 'no routine trigger or' <<<"$out" && ok "fire without token warns" || no "fire without token warns: rc=$rc $out"
 run bash "$R" >/dev/null 2>&1; [ "$?" = 2 ] && ok "no argument prints usage, exit 2" || no "usage exit code"
 
