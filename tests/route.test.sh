@@ -22,6 +22,13 @@ ev 'lead\towner tagged you on #7: u' issue_comment '{"issue":{"number":7,"labels
 ev '' issue_comment '{"issue":{"number":7,"labels":[]},"comment":{"user":{"login":"stranger"},"body":"@example-lead look"}}'
 ev 'lead\tCI failed on main' workflow_run '{"workflow_run":{"name":"ci","conclusion":"failure","head_branch":"main","event":"push","pull_requests":[]}}'
 
+# workflow_run lookups (PR author, merge-ready status) use the run's own repo, not repos.code[0]
+mkdir -p "$W/bin"; printf '#!/usr/bin/env bash\necho "$*" >>"%s/gh.log"\n' "$W" >"$W/bin/gh"; chmod +x "$W/bin/gh"
+printf '%s' '{"repository":{"full_name":"other-org/second-code"},"workflow_run":{"name":"claude-review","conclusion":"failure","head_branch":"claude/x","event":"pull_request","pull_requests":[{"number":12}],"head_sha":"abc"}}' >"$W/ev.json"
+env -i HOME="$W" PATH="$W/bin:$PATH" CREW_CONFIG="$CFG" CREW_PLAN_DIR="$W" CREW_CODE_DIR="$W" GITHUB_EVENT_NAME=workflow_run bash "$R" event "$W/ev.json" >/dev/null 2>&1
+grep -q 'repos/other-org/second-code/commits/abc/statuses' "$W/gh.log" 2>/dev/null && ! grep -qv 'other-org/second-code' "$W/gh.log" \
+  && ok "workflow_run looks up the run's own repo" || no "workflow_run repo: $(cat "$W/gh.log" 2>/dev/null)"
+
 # fire without a token: warns and exits 0 instead of calling the network
 out=$(run bash "$R" fire lead "test" 2>&1); rc=$?
 [ "$rc" = 0 ] && grep -q 'no routine trigger or' <<<"$out" && ok "fire without token warns" || no "fire without token warns: rc=$rc $out"
