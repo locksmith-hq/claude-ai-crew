@@ -27,7 +27,9 @@ idfile="${AGENT_ID_DIR:-$HOME/.config/crew-agent}/persona"   # written by agent-
 persona=${AGENT_PERSONA:-$(cat "$idfile" 2>/dev/null)}
 grep -q '<!-- role: ' <<<"$body" || { [ -n "$persona" ] && body=$(printf '<!-- role: %s -->\n%s' "$persona" "$body"); }
 [ "$(head -1 <<<"$body")" = '<!-- agent -->' ] || body=$(printf '<!-- agent -->\n%s' "$(grep -vxF '<!-- agent -->' <<<"$body")")
-link=$(cd "$dir" && gh api "repos/$repo/issues/$n/comments" -f body="$body" -q .html_url) || { echo "agent-comment: posting on $repo#$n failed" >&2; exit 2; }
+# The recorded shim by path: a resumed session can lose it from PATH and post as the session proxy's account.
+gh=$(cat "${idfile%/*}/shim" 2>/dev/null); [ -x "$gh" ] || gh=gh
+link=$(cd "$dir" && "$gh" api "repos/$repo/issues/$n/comments" -f body="$body" -q .html_url) || { echo "agent-comment: posting on $repo#$n failed" >&2; exit 2; }
 echo "$link"
 [ -f "$idfile" ] || exit 0
 bash "$here/agent-identity.sh" verify-author "$link"; [ $? = 1 ] && exit 1
