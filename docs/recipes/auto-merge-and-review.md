@@ -14,7 +14,7 @@ PRs merge themselves through GitHub auto-merge once required checks, an independ
 ## The `merge-ready` review status
 A workflow runs when auto-merge is enabled on a PR and on every push to such a PR. It sets a commit status (for example `merge-ready`) that is a required check. Checks, in order:
 1. Owner PRs on a non-agent branch pass (the owner reviews their own work).
-2. Protected paths need the owner's approval of this head commit (or of an earlier head with the same PR diff). An owner review re-runs the job.
+2. Protected paths need the owner's approval of this head commit (or of an earlier head with the same PR diff). An owner review, or an owner `approved` comment (below), re-runs the job. Security paths also need the `adversarial` workflow to pass on the head and get the strongest reviewer tier (below).
 3. Completeness: every task file the PR touches is fully ticked (planning-only PRs exempt).
 4. Review: an independent model (in a fresh session that did not write the code) reads the diff against the spec and the security rules and posts one verdict comment `merge-review <sha>: PASS|FAIL`. A PASS resolves the reviewer's open threads.
 5. Reviewer by risk: the model comes from the plan repo's `crew.json` `review.tiers` (below). A diff that only touches `review.skip_globs` passes on CI and steps 1 to 3 alone.
@@ -60,8 +60,18 @@ Secrets and variables (names only):
 
 When switching from a repo-local review workflow, add the caller and delete the old workflow in the same PR, so two workflows never set `merge-ready` at once.
 
-## Owner approval for protected paths
-List protected paths in `.github/CODEOWNERS`: the agent system itself (instructions, skills, scripts, workflows), the merge policy and the trust root. A PR touching them waits for the owner's approval of the head commit (or of an earlier head with the same PR diff). Agents never re-arm auto-merge on a "needs owner approval" failure; they open a decision issue instead.
+## Owner approval: three path lists
+Observed 2026-11: a gate that covers whole files and folders gets bypassed with `--admin`, and the owner cannot review their own PRs. Keep the owner gate to what only the owner can decide (features and behaviour, look, budget), and give security-critical code a stronger automatic gate instead:
+
+| List | Where | What it holds | Gate |
+|---|---|---|---|
+| Protected paths | `.github/CODEOWNERS` | spend and pricing: infrastructure, deploy workflows, licensing and entitlements, and the CODEOWNERS file itself | owner approval of the head commit (or of an earlier head with the same PR diff) |
+| Owner keys | plan repo gate script | budget and identity keys in `crew.json` (for example dispatch, merge, owner, and each role's app and trigger keys) | owner approval of the head |
+| Security paths | `crew.json` `merge.security_paths` | secret-handling code, workflows, agent instructions and skills | strongest reviewer tier (`review.tiers[0]`, else the `model` input) plus a passing `adversarial` workflow on the head; an owner `hold` label still stops the merge |
+
+Keep `.github/CODEOWNERS` itself on the protected list, owned by the owner, so an agent cannot remove the gate. Security paths come from the plan repo's default branch, never from the PR, so a PR cannot shrink its own list. The workflow input `security_check` names the workflow that must pass (default `adversarial`); the job waits up to about 8 minutes for it. Agents never re-arm auto-merge on a "needs owner approval" failure; they open a decision issue instead.
+
+**Approval by comment.** The head counts as owner-approved by an owner review, or by an issue comment on the PR from the owner login whose first line is exactly `approved`, with no `<!-- agent -->` marker, created after the head commit's committer date. A comment re-runs the job, so owner-authored PRs merge without `--admin`. A later push needs a new `approved`. Agent sessions that post as the owner must always carry the agent marker, and a marked comment never counts.
 
 Agent-system changes should land in one weekly release PR (built by an optimizer) or a hotfix branch, so rules stay stable for a week. Observed 2026-11.
 

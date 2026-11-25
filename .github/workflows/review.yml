@@ -7,7 +7,12 @@ name: crew-review-reusable
 # job counts as passing; a missing status does not). It checks, in order:
 #   1. owner PRs on a non-claude/* branch pass (the owner reviews their own work);
 #   2. owned paths (the default branch's .github/CODEOWNERS, last match wins) need the owner's approval of this head
-#      (or of a head with the same PR diff); an owner review re-runs the job;
+#      (or of a head with the same PR diff); an owner review re-runs the job. An owner comment also approves: the
+#      owner login, first line exactly `approved`, no `<!-- agent -->` marker, created after the head commit's
+#      committer date. Such a comment re-runs the job (issue_comment), so owner-authored PRs need no --admin;
+#   2b. security paths (crew.json `merge.security_paths`, from the plan repo, not the PR) need the `security_check`
+#      workflow (default `adversarial`) to have passed on this head, and are always reviewed by the strongest tier
+#      (review.tiers[0], else `model`), never skipped or downgraded;
 #   3. complete: every tasks.md the PR touches is fully ticked, and for a claude/change-<id> branch the plan repo's
 #      branch of the same name has its tasks fully ticked (planning-only PRs exempt);
 #   4. review: an independent Claude review posts "merge-review <sha>: PASS|FAIL"; a PASS for an earlier head still
@@ -41,6 +46,10 @@ on:
       max_turns:
         type: string
         default: "40"
+      security_check:
+        description: Name of the workflow that must have passed on the head for a PR touching crew.json merge.security_paths
+        type: string
+        default: adversarial
       mention:
         description: Also answer @claude mentions in issue and PR comments
         type: boolean
@@ -49,14 +58,16 @@ on:
 jobs:
   review:
     if: >-
-      (github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
+      ((github.event_name == 'pull_request' || github.event_name == 'pull_request_review') &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.event.action == 'auto_merge_enabled' || github.event.pull_request.auto_merge != null)
+      (github.event.action == 'auto_merge_enabled' || github.event.pull_request.auto_merge != null)) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.user.type != 'Bot' &&
+      startsWith(github.event.comment.body, 'approved'))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # Job-level so bot comments on the PR (issue_comment events) cannot cancel a running review.
     concurrency:
-      group: crew-review-${{ github.event.pull_request.number }}
+      group: crew-review-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: true
     permissions:
       contents: read
@@ -67,38 +78,50 @@ jobs:
       actions: read
     env:
       GH_TOKEN: ${{ github.token }}
-      N: ${{ github.event.pull_request.number }}
+      N: ${{ github.event.pull_request.number || github.event.issue.number }}
       SHA: ${{ github.event.pull_request.head.sha }}
       HEAD_REF: ${{ github.event.pull_request.head.ref }}
       AUTHOR: ${{ github.event.pull_request.user.login }}
       BASE: ${{ github.event.pull_request.base.ref }}
-      REVIEWER: ${{ github.event.review.user.login }}
+      REVIEWER: ${{ github.event.review.user.login || github.event.comment.user.login }}
     steps:
+      # An owner `approved` comment arrives as issue_comment, which carries no PR head: look it up, and skip a
+      # PR that is a fork or has no auto-merge armed (SKIP=1 turns every later step off).
+      - if: github.event_name == 'issue_comment'
+        run: |
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$N")
+          if [ "$(jq -r --arg r "$GITHUB_REPOSITORY" '.head.repo.full_name == $r and .auto_merge != null' <<<"$pr")" = true ]; then
+            jq -r '"SHA=\(.head.sha)\nHEAD_REF=\(.head.ref)\nAUTHOR=\(.user.login)\nBASE=\(.base.ref)"' <<<"$pr" >>"$GITHUB_ENV"
+          else echo SKIP=1 >>"$GITHUB_ENV"; fi
       # Short-lived token from the crew's GitHub App (created by `crew apps create --single`), so no personal
       # access token is needed. Falls back to CREW_REPO_TOKEN, then to the workflow token.
       - id: crewtok
-        if: ${{ vars.CREW_APP_ID != '' }}
+        if: ${{ env.SKIP != '1' && vars.CREW_APP_ID != '' }}
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ vars.CREW_APP_ID }}
           private-key: ${{ secrets.CREW_APP_KEY }}
           owner: ${{ github.repository_owner }}
-      - uses: actions/checkout@v4
+      - if: env.SKIP != '1'
+        uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ env.SHA }}
           fetch-depth: 0
-      - uses: actions/checkout@v4
+      - if: env.SKIP != '1'
+        uses: actions/checkout@v4
         with:
           repository: ${{ inputs.plan_repo }}
           token: ${{ steps.crewtok.outputs.token || secrets.CREW_REPO_TOKEN || github.token }}
           path: .crew/plan
           fetch-depth: 0
-      - uses: actions/checkout@v4
+      - if: env.SKIP != '1'
+        uses: actions/checkout@v4
         with:
           repository: ${{ inputs.harness_repo }}
           ref: ${{ inputs.harness_ref }}
           path: .crew/harness
       - id: cfg
+        if: env.SKIP != '1'
         run: |
           cfg=.crew/plan/crew.json
           owner=$(jq -r '.owner.login' "$cfg")
@@ -109,11 +132,12 @@ jobs:
             # Agent bots: the roles' Apps and their extra logins (their events must be allowed to trigger the review action).
             echo "bots=$(jq -r '[.roles[] | .app // empty, (.logins // [])[]] | map(sub("\\[bot\\]$"; "")) | unique | join(",")' "$cfg")"
           } >>"$GITHUB_OUTPUT"
-          # An owner review of the PR re-runs this job; any other review event is ignored.
-          if [ "${{ github.event_name }}" = pull_request_review ] && [ "$REVIEWER" != "$owner" ]; then echo skip=1 >>"$GITHUB_OUTPUT"; fi
+          # An owner review or `approved` comment re-runs this job; any other review or comment event is ignored.
+          if [ "${{ github.event_name }}" != pull_request ] && [ "$REVIEWER" != "$owner" ]; then echo SKIP=1 >>"$GITHUB_ENV"; fi
       - id: pre
-        if: steps.cfg.outputs.skip != '1'
+        if: env.SKIP != '1'
         env:
+          SEC_CHECK: ${{ inputs.security_check }}
           OWNER: ${{ steps.cfg.outputs.owner }}
           CHANGES: ${{ steps.cfg.outputs.changes }}
           PLAN_REPO: ${{ inputs.plan_repo }}
@@ -151,6 +175,12 @@ jobs:
               if [ "$c" = "$SHA" ] || { { git cat-file -e "$c^{commit}" 2>/dev/null || git fetch -q origin "$c" 2>/dev/null; } &&
                  [ "$(pid "$c")" = "$(pid HEAD)" ]; }; then ok=$c; break; fi
             done
+            if [ -z "$ok" ]; then
+              hd=$(git log -1 --format=%ct "$SHA")
+              c=$(gh api "repos/$GITHUB_REPOSITORY/issues/$N/comments?per_page=100" --paginate \
+                -q ".[]|select(.user.login==\"$OWNER\" and (.body|contains(\"<!-- agent -->\")|not) and (.body|split(\"\n\")[0]|rtrimstr(\"\r\")==\"approved\") and (.created_at|fromdateiso8601) > $hd)|.id" | head -1)
+              [ -n "$c" ] && ok=comment
+            fi
             [ -n "$ok" ] || { st failure "owned paths need the owner's approval:${owned:0:100}"; echo "::error::needs owner approval:$owned"; exit 1; }
           fi
           # 3 complete. Planning-only PRs (in the plan repo, touching only the changes dir) are exempt.
@@ -167,6 +197,24 @@ jobs:
               elif grep -qE '^\s*- \[ \]' <<<"$t"; then st failure "unchecked tasks in plan change $id"; echo "::error::unchecked tasks in plan change $id"; exit 1; fi
             fi
           fi
+          # 2b security paths (the plan repo's crew.json, never the PR's copy): the adversarial workflow must have
+          # passed on this head (wait up to ~8 min for it to start and finish), and the reviewer is the strongest tier.
+          sec=0
+          while IFS= read -r g; do
+            g=${g#/}; [[ "$g" == */ ]] && g="$g*"
+            while IFS= read -r f; do
+              # shellcheck disable=SC2053
+              [[ "$f" == $g ]] && { sec=1; break 2; }
+            done < <(git diff --name-only "origin/$BASE...HEAD")
+          done < <(jq -r '.merge.security_paths // [] | .[]' .crew/plan/crew.json)
+          if [ "$sec" = 1 ]; then
+            for _ in $(seq 24); do
+              adv=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SHA&per_page=100" -q "[.workflow_runs[]|select(.name==\"$SEC_CHECK\" and .event==\"pull_request\")]|map(.conclusion // \"pending\")|if length==0 then \"pending\" elif all(.==\"success\") then \"success\" elif any(.==\"pending\") then \"pending\" else \"failure\" end")
+              [ "$adv" = pending ] || break
+              sleep 20
+            done
+            [ "$adv" = success ] || { st failure "security paths need the $SEC_CHECK workflow to pass on this head"; echo "::error::security paths need the $SEC_CHECK workflow to pass on this head ($adv)"; exit 1; }
+          fi
           # Renovate dependency PRs get no model review: they still pass the owned-paths and completeness checks above.
           [ "$AUTHOR" = "renovate[bot]" ] && { st success "renovate PR: no model review"; echo done=1 >>"$GITHUB_OUTPUT"; exit 0; }
           # 4 an earlier PASS still applies if the PR's own diff is unchanged
@@ -179,13 +227,17 @@ jobs:
           fi
           # 5 reviewer by risk. Any failure (bad config, missing script) falls back to the strongest model, never to skip.
           t=$(git diff --name-only "origin/$BASE...HEAD" | bash .crew/harness/scripts/review-tier.sh .crew/plan/crew.json) || t="fallback "
+          if [ "$sec" = 1 ]; then
+            t=$(jq -r '(.review.tiers[0] // empty)|"security \(.model)"' .crew/plan/crew.json 2>/dev/null) || t=""
+            [[ "$t" =~ ^security\ [A-Za-z0-9][A-Za-z0-9._:-]*$ ]] || t="security $MODEL"
+          fi
           tier=${t%% *}; model=${t#* }
           [ "$tier" = skip ] && { st success "no model review: docs or planning only"; echo done=1 >>"$GITHUB_OUTPUT"; exit 0; }
           [ -n "$model" ] || model=$MODEL
           echo "model=$model" >>"$GITHUB_OUTPUT"
           echo "::notice::review tier $tier ($model)"
           st pending "Claude review running ($tier)"
-      - if: steps.cfg.outputs.skip != '1' && steps.pre.outputs.done != '1'
+      - if: env.SKIP != '1' && steps.pre.outputs.done != '1'
         id: review
         uses: anthropics/claude-code-action@v1
         with:
@@ -206,7 +258,7 @@ jobs:
             --model ${{ steps.pre.outputs.model }} --max-turns ${{ inputs.max_turns }}
             --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(git diff:*),Bash(git log:*),mcp__github_inline_comment__create_inline_comment"
       # Review spend as a check annotation, so token use per PR can be counted from the API.
-      - if: steps.cfg.outputs.skip != '1' && steps.pre.outputs.done != '1' && !cancelled() && steps.review.outputs.execution_file != ''
+      - if: env.SKIP != '1' && steps.pre.outputs.done != '1' && !cancelled() && steps.review.outputs.execution_file != ''
         continue-on-error: true
         env:
           EXEC: ${{ steps.review.outputs.execution_file }}
@@ -215,7 +267,7 @@ jobs:
           u=$(jq -r '[.[]|select(.type == "result")][-1]|"turns=\(.num_turns // "?") in=\(.usage.input_tokens // 0) cache_read=\(.usage.cache_read_input_tokens // 0) cache_write=\(.usage.cache_creation_input_tokens // 0) out=\(.usage.output_tokens // 0) cost_usd=\(.total_cost_usd // "?")"' "$EXEC")
           echo "::notice title=review usage::model=$MODEL $u"
           echo "review usage: model=$MODEL $u" >>"$GITHUB_STEP_SUMMARY"
-      - if: steps.cfg.outputs.skip != '1' && steps.pre.outputs.done != '1' && !cancelled()
+      - if: env.SKIP != '1' && steps.pre.outputs.done != '1' && !cancelled()
         run: |
           st() { gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f context=merge-ready -f state="$1" -f description="$2" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null; }
@@ -230,7 +282,7 @@ jobs:
           if [ "$res" = PASS ]; then st success "Claude review PASS"; else st failure "Claude review FAIL: fix the findings and push"; exit 1; fi
       # A PASS (new, or still applying) covers every earlier finding: resolve the reviewer's open threads, or the
       # ruleset's thread rule keeps a passed PR blocked with no one owning it.
-      - if: success() && steps.cfg.outputs.skip != '1'
+      - if: success() && env.SKIP != '1'
         run: |
           # shellcheck disable=SC2016 # $owner etc. are GraphQL variables, not shell
           gh api graphql --paginate -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F n="$N" -f query='
