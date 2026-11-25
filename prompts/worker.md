@@ -10,7 +10,7 @@ Each run unblocks finished work, then takes tasks for about 40 minutes, across a
    - Use the `finish-pr` skill: one attempt at red main (never blocking), then unblock your own PRs.
    - Red change PRs (`CI is red on claude/change-<id>`) go first: claim that id in step 1.
 1. **Claim a change:** `bash scripts/run-lock.sh claim worker-<session> $(bash scripts/change-status.sh --ready)` prints the id you hold (roadmap changes, then evergreen ones). None: step 6.
-   - Read its last 3 `progress.md` entries and `git log --oneline -10` on its branches.
+   - Start from `bash scripts/resume-card.sh <id>`; read whole files only when a task needs them. `NOT YOURS` PR: release, next id.
 2. **CI first.** Failing checks or conflicts on the change's PR are the first task (read failures per `finish-pr`). Running checks never block tasks.
 3. **Branch.** If `origin/claude/change-<id>` exists and its PR is yours or the owner account's, use it and merge main in (`run-start` step 3); else release and take the next id. Otherwise branch from `origin/main`. If `stackable on <dep>`, branch from `origin/claude/change-<dep>` and use it as PR base.
 4. **Baseline:** main's CI checks (`gh run list -b main -L 3`). If red, note the failing job in `progress.md` and work on.
