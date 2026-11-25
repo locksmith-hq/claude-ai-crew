@@ -55,6 +55,8 @@ elif compgen -v AGENT_APP_KEY_ >/dev/null; then
 elif [ "$kind" = research ] || [ "$persona" = research ]; then
   echo "FAIL identity: research has open internet and never runs as the owner; set $var"; pf=1
 else echo "WARN   identity: no ${persona:+$var }key in this environment; acting as the owner account"; fi
+echo "== handles (tag a role with its handle; GitHub autocompletes these teams)"
+bash "$here/route.sh" handles | awk -F'\t' '{printf "%-9s %s\n", $1, $2}'
 echo "== active lessons ($PATH_LESSONS on origin/$MAIN of the plan repo)"
 lessons=$(crew_plan_git show "origin/$MAIN:$PATH_LESSONS" 2>/dev/null | awk '/^## L[0-9]+/{p=1} p')
 echo "${lessons:-(none)}"

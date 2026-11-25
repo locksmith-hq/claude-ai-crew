@@ -4,6 +4,7 @@
 #   route.sh debate <issue>        debate guard: "wake <role> <why>" or "wait <why>"; agents act only on their own wake
 #   route.sh fire <role> <reason>  wake a role's routine; its token comes from the env var named by roles.<role>.secret
 #   route.sh role <login>          the agent role of a GitHub login
+#   route.sh handles               "role<TAB>@handle" per role, as GitHub autocompletes it (the org team named after .name), plus the owner
 #   route.sh tick                  fire each batched role once for its queue (the wake workflow's tick job)
 #   (role "blocker" in event output: no routine; fire records it on one harness-blocker issue per cause)
 #   route.sh selftest              offline checks against a built-in crew.json fixture
@@ -110,6 +111,10 @@ replied_just_before() { # <issue> <comment-id> <created_at>; comments from GitHu
 
 role_of() { # <login>: the agent role whose login ("<app>[bot]" or roles.<role>.logins) it is, else nothing (the owner is not a role here)
   cfgq --arg l "$1" '[.roles|to_entries[]|select(((.value.app // "") + "[bot]") == $l or ((.value.logins // [])|index($l)))|.key][0] // empty'
+}
+
+handles() { # the org team handle per role (the slug of .name, else the role key), then the owner
+  cfgq -r --arg o "$org" '(.roles|to_entries[]|"\(.key)\t@\($o)/\((.value.name // .key)|ascii_downcase|gsub("[^a-z0-9]+"; "-")|sub("^-+|-+$"; ""))"), "owner\t@\(.owner.login)"'
 }
 
 tags_of() { # <comment body>: roles named by @<project>-<role> or @<org>/<role> handles, each role's slugified .name (@acme-atlas-lead), plus the optional .mentions map (aliases)
@@ -383,6 +388,9 @@ no role marker"
   qo lead '#5 (needs-rescue)\n#9 (debate)\nmain red over 2 h' '{"items":[{"number":5,"labels":["needs-rescue","wake-lead"]},{"number":9,"labels":["debate","wake-lead"]}],"main":{"conclusion":"failure","updated_at":"2026-11-22T09:00:00Z"}}'
   qo lead '' '{"items":[],"main":{"conclusion":"failure","updated_at":"2026-11-22T11:00:00Z"}}'  # under 2 h: workers try first
   qo pm '#597 (needs-work)' '{"items":[{"number":597,"labels":["needs-work","wake-pm"]}],"main":{"conclusion":"failure","updated_at":"2026-11-22T09:00:00Z"}}'
+  # every printed handle must route back to its own role, so what agents copy is what wakes
+  while IFS=$'\t' read -r r h; do [ "$r" = owner ] && continue; [ "$(tags_of "$h please")" = "$r" ] && echo "ok: handle $h" || { echo "FAIL: handle $h does not route to $r"; fail=1; }; done < <(handles)
+  [ "$(handles | grep -c .)" = 7 ] && handles | grep -qx $'lead\t@acme-org/atlas-lead' && echo "ok: handles list" || { echo "FAIL: handles list"; handles; fail=1; }
   [ "$(role_of 'acme-old-lead[bot]')" = lead ] && echo "ok: role of an old login" || { echo "FAIL: role of an old login"; fail=1; }
   [ "$fail" = 0 ] && echo "route selftest: OK"; return "$fail"
 }
@@ -392,6 +400,7 @@ case "${1:-}" in
   debate) debate_input "${2:?issue}" | decide ;;
   fire) fire "${2:?role}" "${3:?reason}" ;;
   role) role_of "${2-}" ;;
+  handles) handles ;;
   tick) tick ;;
   selftest) selftest ;;
   *) sed -n '2,10p' "$0"; exit 2 ;;

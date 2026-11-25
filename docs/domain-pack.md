@@ -14,6 +14,8 @@ looks like); you only need to write the parts that differ from the defaults.
 
 Handles: `@<project>-<role>` and `@<org>/<role>` wake a role; a role's optional `name` adds
 `@<project>-<slug>` and `@<org>/<slug>` (lowercase, spaces to `-`: name "Atlas Lead" gives `@acme-atlas-lead`).
+Agents write only the handle `route.sh handles` prints (and `agent-start.sh` lists): the org team `@<org>/<slug>`.
+Create one org team per role with that slug so GitHub autocompletes it and a reader can see who is tagged.
 Keep names, logins, repo names and ids in your `crew.json`, never in the harness.
 
 ## Full `crew.json`
