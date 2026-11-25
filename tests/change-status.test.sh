@@ -51,6 +51,12 @@ expect w1-site "ready" "9 gate Approve the w1-site cost brief"
 expect w1-site "parked rescue #8" "$(printf '9 gate Approve w1-site\n8 rescue Rescue: w1-site 1.1')"
 mk g1-gated '' '- [x] 1.1 brief\n- [ ] 1.2 Gate: owner approved the brief\n- [ ] 1.3 apply\n'
 expect g1-gated "parked owner #9" "9 gate Approve the g1-gated cost brief"; rm -rf changes/g1-gated
+# Ownership: another App's PR on the change branch or its -r<n> rebranch makes the change owned; a similar id does not.
+own() { got=$(PR_AUTHORS="$(printf "$2")" AGENT_PERSONA='' run | awk -F'\t' -v id="$1" '$1==id{print $2" "$3}' | sed 's/ $//')
+  [ "$got" = "$3" ] && ok "owned: $4" || no "owned: $4: expected '$3', got '$got'"; }
+own w1-site 'claude/change-w1-site\tacme-b[bot]' 'owned acme-b[bot]' 'exact head'
+own w1-site 'claude/change-w1-site-r2\tacme-b[bot]' 'owned acme-b[bot]' '-r2 rebranch'
+own w1-site 'claude/change-w1-site-rework\tacme-b[bot]' 'ready' 'similar id is not the change'
 [ "$(BLOCKERS='7 owner w1-site' run --ready | tr '\n' ' ')" = "s2-crypto k1-api k2-ui " ] && ok "--ready lists only takeable changes" || no "--ready"
 # Unwritten rows whose Needs are archived or fully ticked on a branch; written rows (s1) never.
 [ "$(run --plannable | tr '\n' ' ')" = "n1-new n3-on-s1 n4-on-contract " ] && ok "--plannable lists unwritten rows that can start" || no "--plannable, got '$(run --plannable | tr '\n' ' ')'"

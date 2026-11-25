@@ -91,6 +91,7 @@ pr_authors=""; [ "${OFFLINE:-0}" = 1 ] || pr_authors=$(gh api "repos/$CODE_REPO/
     |(any(.labels[]; .name=="needs-owner")) as $o | (any(.labels[]; .name=="needs-rescue")) as $r
     |"\(.number) \(if $o and $r then "owner" elif $r then "rescue" else "gate" end) \((.title+" "+(.body // ""))|gsub("\n";" "))"' 2>/dev/null)
 blockers=${BLOCKERS:-$blockers}
+pr_authors=${PR_AUTHORS:-$pr_authors}  # tests pass "<head ref>\t<login>" lines
 
 for id in $ids; do
   t=$(tasks_of "$id")
@@ -121,8 +122,9 @@ for id in $ids; do
       h=$(bash "$here/run-lock.sh" holder "status-check" "$id" 2>/dev/null) || h="lock state unknown"  # fail closed
       [ -n "$h" ] && { state=claimed; detail="$h"; }
     fi
-    if { [ "$state" = ready ] || [ "$state" = stackable ]; } && [ "${OFFLINE:-0}" != 1 ]; then
-      a=$(awk -F'\t' -v b="claude/change-$id" '$1==b{print $2; exit}' <<<"$pr_authors")
+    if { [ "$state" = ready ] || [ "$state" = stackable ]; } && [ -n "$pr_authors" ]; then
+      # push-pr.sh rebranches a merged PR's branch to -r<n>; that PR is the change's PR too (observed 2026-11).
+      a=$(awk -F'\t' -v b="claude/change-$id" '$1==b || $1 ~ ("^" b "-r[0-9]+$"){print $2; exit}' <<<"$pr_authors")
       [[ "$a" == *"[bot]" ]] && ! grep -qxF "$a" <<<"$me" && { state=owned; detail="$a"; }
     fi
   fi
