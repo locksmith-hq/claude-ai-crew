@@ -63,7 +63,7 @@ jobs:
       # access token is needed. Falls back to CREW_REPO_TOKEN, then to the workflow token.
       - id: crewtok
         if: ${{ vars.CREW_APP_ID != '' }}
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.CREW_APP_ID }}
           private-key: ${{ secrets.CREW_APP_KEY }}
