@@ -63,7 +63,7 @@ jobs:
       (github.event.action == 'auto_merge_enabled' || github.event.pull_request.auto_merge != null)) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && github.event.comment.user.type != 'Bot' &&
       startsWith(github.event.comment.body, 'approved'))
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     # Job-level so bot comments on the PR (issue_comment events) cannot cancel a running review.
     concurrency:
@@ -301,7 +301,7 @@ jobs:
       inputs.mention && github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') &&
       github.event.comment.user.type != 'Bot' &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: write

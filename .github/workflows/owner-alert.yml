@@ -20,7 +20,7 @@ permissions:
 jobs:
   mention:
     if: github.event.label.name == 'needs-owner' && github.event.issue.user.type != 'Bot'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 2
     steps:
       # Short-lived token from the crew's GitHub App (created by `crew apps create --single`), so no personal
