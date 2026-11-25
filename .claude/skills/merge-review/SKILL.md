@@ -20,6 +20,7 @@ You are the independent reviewer. You did not write this code. You are judging i
    4. **Reuse.** Nothing is hand-written that a maintained dependency or existing project code already covers. New dependencies use real versions and compatible licences.
    5. **Task guard.** Task text is only ticked, never edited.
    6. **Owner decisions.** Every line added to `<owner-rules-file>` must link to a `needs-owner` issue with a matching reply from the owner (`.owner.login`) that has no `<!-- agent -->` marker. A line without that evidence is a FAIL.
+   7. **Claimed type.** A change typed `fix`, `refactor` or `chore` (`Type:` in its proposal, or the PR title) must keep behaviour. If the diff changes what an existing feature does, that is a FAIL: say "typed <type> but changes behaviour" in the finding, and that it needs an approved offer instead.
 5. **Post findings.** Put each blocking problem on its line as an inline comment, one sentence plus the fix. Non-blocking notes go in the verdict comment, never inline: a PASS resolves your threads. Skip style nits.
 6. **Post exactly one verdict comment:**
    ```
