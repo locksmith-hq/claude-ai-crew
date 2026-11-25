@@ -17,6 +17,7 @@ The harness checkout is your own scripts directory. `agent-start.sh` exports `CR
 
 ## Gotchas (cloud VM, observed 2026-11, verified on one provider only)
 - A container registry may return 403 even though the docs allow it. Fall back to Docker Hub images.
+- Docker Hub rate-limits anonymous pulls (429). Preflight starts the daemon with the `mirror.gcr.io` registry mirror; if it warns `docker-mirror`, record it as friction and don't loop on retries after a 429.
 - `service docker start` can fail. Preflight falls back to `dockerd &`, so don't start the container runtime by hand.
 - The VM may run as root. A test that relies on non-root behaviour may skip itself, which is expected.
 - A web test suite needs installed dependencies. If preflight warns about it, start the install with the `long-commands` skill.
