@@ -31,7 +31,11 @@ CH=${PATH_CHANGES%/}
 only_ready=0; [ "${1:-}" = --ready ] && only_ready=1
 
 tasks_of() {
-  local b="origin/claude/change-$1" p
+  local b p
+  # The newest of claude/change-<id> and its push-pr.sh rebranches (-r<n>) holds the unmerged ticks.
+  b=$(crew_plan_git for-each-ref --sort=-committerdate --count=1 --format='%(refname:short)' \
+    "refs/remotes/origin/claude/change-$1" "refs/remotes/origin/claude/change-$1-r*")
+  b=${b:-origin/claude/change-$1}
   crew_plan_git show "$b:$CH/$1/tasks.md" 2>/dev/null && return
   # A branch that archived the change in its PR has no live tasks.md; main's unticked copy would make it look ready.
   p=$(crew_plan_git ls-tree -r --name-only "$b" -- "$CH/archive" 2>/dev/null | grep -m1 -E -- "-$1/tasks\.md$")
