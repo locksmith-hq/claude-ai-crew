@@ -78,3 +78,4 @@ Project-independent lessons from running scheduled Claude Code agents in cloud s
 
 38. **The free GitHub plan cannot enforce review on private repos.** Lesson: no branch protection, required status checks or auto-merge on private repos means an AI review can run but cannot block a merge; decide the repo visibility or plan up front. What happened: the review workflow could not be triggered on the sandbox. Observed 2026-11; verified.
 
+39. **Pull Docker Hub images through a mirror.** Lesson: start the container daemon with `registry-mirrors: ["https://mirror.gcr.io"]` in `/etc/docker/daemon.json` (preflight does this), and never pull from Docker Hub unauthenticated at scale. Misses fall back to Docker Hub; if 429s return on images the mirror lacks, add a Docker Hub token or a pull-through cache. What happened: workers sharing a few egress IPs hit Docker Hub's anonymous limit (100 pulls per 6 hours) and image builds failed with 429. Observed 2026-11.
