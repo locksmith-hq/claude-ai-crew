@@ -79,7 +79,7 @@ jobs:
           app-id: ${{ vars.CREW_APP_ID }}
           private-key: ${{ secrets.CREW_APP_KEY }}
           owner: ${{ github.repository_owner }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ inputs.harness_repo }}
           ref: ${{ inputs.harness_ref }}
@@ -87,7 +87,7 @@ jobs:
           sparse-checkout: |
             scripts
           sparse-checkout-cone-mode: true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ inputs.plan_repo }}
           token: ${{ steps.crewtok.outputs.token || secrets.CREW_REPO_TOKEN || github.token }}
@@ -125,7 +125,7 @@ jobs:
           app-id: ${{ vars.CREW_APP_ID }}
           private-key: ${{ secrets.CREW_APP_KEY }}
           owner: ${{ github.repository_owner }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ inputs.harness_repo }}
           ref: ${{ inputs.harness_ref }}
@@ -133,7 +133,7 @@ jobs:
           sparse-checkout: |
             scripts
           sparse-checkout-cone-mode: true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ inputs.plan_repo }}
           token: ${{ steps.crewtok.outputs.token || secrets.CREW_REPO_TOKEN || github.token }}

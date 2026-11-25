@@ -103,19 +103,19 @@ jobs:
           private-key: ${{ secrets.CREW_APP_KEY }}
           owner: ${{ github.repository_owner }}
       - if: env.SKIP != '1'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
           fetch-depth: 0
       - if: env.SKIP != '1'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.plan_repo }}
           token: ${{ steps.crewtok.outputs.token || secrets.CREW_REPO_TOKEN || github.token }}
           path: .crew/plan
           fetch-depth: 0
       - if: env.SKIP != '1'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.harness_repo }}
           ref: ${{ inputs.harness_ref }}
@@ -310,7 +310,7 @@ jobs:
       id-token: write
       actions: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
       - uses: anthropics/claude-code-action@v1
