@@ -29,6 +29,16 @@ expect() { got=$(BLOCKERS="${3:-}" run | awk -F'\t' -v id="$1" '$1==id{print $2"
 expect s1-api "ready"
 expect s2-crypto "blocked needs s1-api"
 expect t1-auth "finished"
+# An open PR that archives a finished change puts it in review; a leftover change PR without the archive does not.
+ph() { got=$(PLAN_HEADS="$2" run | awk -F'\t' -v id=t1-auth '$1==id{print $2" "$3}' | sed 's/ $//')
+  [ "$got" = "$1" ] && ok "archive PR: $3" || no "archive PR: $3: expected '$1', got '$got'"; }
+ph "review archive PR open" claude/archive-t1-auth "claude/archive-<id> open"
+git update-ref refs/remotes/origin/claude/change-t1-auth HEAD
+ph "finished" claude/change-t1-auth "change PR without the archive"
+git switch -qc claude/change-t1-auth; git mv changes/t1-auth changes/archive/2026-01-03-t1-auth
+git commit -qm archive; git update-ref refs/remotes/origin/claude/change-t1-auth HEAD; git switch -q main
+ph "review archive PR open" claude/change-t1-auth "change PR that archives it"
+git update-ref -d refs/remotes/origin/claude/change-t1-auth; git branch -qD claude/change-t1-auth
 expect w1-site "ready"
 # A :contract dependency is met once the dep's "Contract" task group is ticked; a dep without one blocks.
 expect k2-ui "stackable on k1-api"

@@ -11,7 +11,7 @@
 #   claimed    another worker holds the change lock (detail: holder)
 #   owned      another agent App opened the change's PR (detail: its login); only that author continues it
 #              (an ownership rule). The caller is AGENT_PERSONA's App; without one, every App-owned PR counts.
-#   review     every task ticked on the branch; waiting for the merge queue
+#   review     every task ticked on the branch, or an open PR archives it; waiting for the merge queue
 #   finished   every task ticked on main but not archived
 # Usage: scripts/change-status.sh [--ready|--plannable]
 #   --ready      prints only ids a worker may take now
@@ -92,12 +92,23 @@ pr_authors=""; [ "${OFFLINE:-0}" = 1 ] || pr_authors=$(gh api "repos/$CODE_REPO/
     |"\(.number) \(if $o and $r then "owner" elif $r then "rescue" else "gate" end) \((.title+" "+(.body // ""))|gsub("\n";" "))"' 2>/dev/null)
 blockers=${BLOCKERS:-$blockers}
 pr_authors=${PR_AUTHORS:-$pr_authors}  # tests pass "<head ref>\t<login>" lines
+# Open plan PR heads, read once. An open PR that archives a finished change is in review, not work: without this the
+# dispatcher fired every free worker at it in turn until it merged (observed 2026-11).
+plan_heads=""; [ "${OFFLINE:-0}" = 1 ] || plan_heads=$(gh api "repos/$PLAN_REPO/pulls?state=open&per_page=100" -q '.[].head.ref' 2>/dev/null)
+plan_heads=${PLAN_HEADS:-$plan_heads}
+# archiving <id>: an open claude/archive-<id> PR, or an open change-branch PR whose tree archives the change.
+archiving() { local h; grep -qxF -- "claude/archive-$1" <<<"$plan_heads" && return 0
+  for h in $(grep -xE -- "claude/change-$1(-r[0-9]+)?" <<<"$plan_heads"); do
+    crew_plan_git ls-tree -r --name-only "origin/$h" -- "$CH/archive" 2>/dev/null | grep -qE -- "-$1/tasks\.md$" && return 0
+  done; return 1; }
 
 for id in $ids; do
   t=$(tasks_of "$id")
   if all_ticked "$t"; then
-    if all_ticked "$(cat "$CH/$id/tasks.md")"; then state=finished; else state=review; fi
     detail=""
+    if ! all_ticked "$(cat "$CH/$id/tasks.md")"; then state=review
+    elif archiving "$id"; then state=review; detail="archive PR open"
+    else state=finished; fi
   else
     state=ready; detail=""
     for d in $(deps_of "$id"); do
