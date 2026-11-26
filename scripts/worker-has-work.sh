@@ -48,12 +48,15 @@ done <<<"$status"
 # planning PR, and a roadmap row whose Needs are met, writing that row is work. Planning PRs are plan-repo PRs.
 next=$(bash "$(dirname "$0")/change-status.sh" --plannable | head -1)
 takeable=$(grep -cE $'\t(ready|stackable)\t' <<<"$status" || true)
-plans=$(gh api "repos/$PLAN_REPO/pulls?state=open&per_page=100" -q '.[]|select(.head.ref|startswith("claude/planning-"))|[.number, (.auto_merge != null)]|@tsv')
+plans=$(gh api "repos/$PLAN_REPO/pulls?state=open&per_page=100" -q '.[]|select(.head.ref|startswith("claude/planning-"))|.number')
 [ "${takeable:-0}" -lt 3 ] && [ -z "$plans" ] && [ -n "$next" ] && work+=("fewer than 3 changes ready: plan the next one ($next)")
-# A planning PR without auto-merge never merges and also suppresses planning, so workers would idle forever.
-while IFS=$'\t' read -r pr auto; do
-  [ "$auto" = false ] && work+=("planning PR #$pr does not have auto-merge on")
-done <<<"$plans"
+# Your planning PR without auto-merge never merges and also suppresses planning, so workers would idle forever.
+# A plan repo without native auto-merge merges through plan-merge instead, so there it is never work (observed 2026-11: ~10 empty fires a day).
+if [ -n "$plans" ] && [ "$(gh api "repos/$PLAN_REPO" -q .allow_auto_merge 2>/dev/null)" = true ]; then
+  for pr in $(gh api "repos/$PLAN_REPO/pulls?state=open&per_page=100" -q ".[]|select(.head.ref|startswith(\"claude/planning-\"))|$mine|select(.auto_merge == null)|.number"); do
+    work+=("planning PR #$pr does not have auto-merge on")
+  done
+fi
 
 if [ "${#work[@]}" -gt 0 ]; then printf 'work: %s\n' "${work[@]}"; exit 0; fi
 echo idle; exit 1

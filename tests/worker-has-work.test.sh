@@ -15,7 +15,7 @@ cat >"$t/bin/gh" <<'EOF'
 # gh api <url> -q <filter>: the fixture named for the url, through jq
 url=$2; q=${4:-.}
 case "$url" in
-  *hold-workers*) f=hold ;; *needs-rescue*) f=rescue ;; *review-failed*) f=rf ;; *pulls*) f=pulls ;;
+  *hold-workers*) f=hold ;; *needs-rescue*) f=rescue ;; *review-failed*) f=rf ;; *pulls*) f=pulls ;; */plan) f=repo ;;
   *runs?branch=main*) f=main ;; *runs*) f=red ;; *) exit 1 ;;
 esac
 jq -r "$q" "$FX/$f.json"
@@ -45,4 +45,12 @@ check "every red PR rescued: idle" '[]' '[{"title":"Rescue: a1-red and b2-red","
 printf '#!/usr/bin/env bash\n[ "${1:-}" != --plannable ] && [ "${AGENT_PERSONA:-}" = worker-a ] && printf "c9-x\\tready\\t\\n"; exit 0\n' >"$t/scripts/change-status.sh"
 echo '[]' >"$t/fx/pulls.json"
 check "persona argument reaches change-status.sh" '[]' '[]' 'work: c9-x is ready' 0 worker-a
+# Planning PRs: only your own, and only where the plan repo allows native auto-merge.
+printf '#!/usr/bin/env bash\n' >"$t/scripts/change-status.sh"
+echo '[{"number":5,"user":{"login":"acme-old-b[bot]"},"head":{"ref":"claude/planning-x"},"auto_merge":null}]' >"$t/fx/pulls.json"
+echo '{"allow_auto_merge":true}' >"$t/fx/repo.json"
+check "own planning PR without auto-merge is work" '[]' '[]' 'work: planning PR #5 does not have auto-merge on' 0 worker-b
+check "another role's planning PR is not work" '[]' '[]' 'idle' 1 worker-a
+echo '{"allow_auto_merge":false}' >"$t/fx/repo.json"
+check "plan repo without auto-merge: planning PR is not work" '[]' '[]' 'idle' 1 worker-b
 echo "worker-has-work.test: $pass passed, $failn failed"; [ "$failn" = 0 ]
