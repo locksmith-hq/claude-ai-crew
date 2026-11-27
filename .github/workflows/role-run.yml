@@ -52,7 +52,7 @@ permissions:
 
 jobs:
   run:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: ${{ inputs.timeout_minutes }}
     # One run per role at a time: a second overlapping run would race the first on branches and locks.
     concurrency:
