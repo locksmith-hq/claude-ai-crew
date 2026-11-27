@@ -43,11 +43,14 @@ tasks_of() {
 }
 all_ticked() { ! grep -qE '^\s*- \[ \]' <<<"$1"; }
 archived() { compgen -G "$CH/archive/*-$1" >/dev/null; }
+code_pr_open() { awk -F'\t' -v b="claude/change-$1" '$1==b || $1 ~ ("^" b "-r[0-9]+$"){f=1} END{exit !f}' <<<"${pr_authors:-}"; }
 # dep_state <id|id:contract>: merged (archived), branch (every task ticked on its branch; for :contract only its
 # "Contract" task group, so dependents can start against the schema and mocks), or unmet.
 dep_state() {
   local d="${1%:contract}" t
-  archived "$d" && { echo merged; return; }
+  # Archived while its code PR is still open: not on main yet, so build on its branch (observed 2026-11: a dependent fired 11
+  # times as ready on a dependency whose code PR stayed unmerged, and its runs opened rescues).
+  archived "$d" && { if code_pr_open "$d"; then echo branch; else echo merged; fi; return; }
   [ -f "$CH/$d/tasks.md" ] || { echo unmet; return; }
   t=$(tasks_of "$d")
   if [ "$1" != "$d" ]; then t=$(awk '/^## /{c=($0 ~ /[Cc]ontract/)} c' <<<"$t"); [ -n "$t" ] || { echo unmet; return; }; fi
@@ -107,9 +110,9 @@ for id in $ids; do
         *) state=blocked; detail="needs $d"; break ;;
       esac
     done
+    gate_next=$(grep -m1 -E '^\s*- \[ \]' <<<"$t" | grep -c 'Gate:')
     if [ "$state" != blocked ] && [ -n "$blockers" ]; then
       mine=$(grep -F -- "$id" <<<"$blockers")
-      gate_next=$(grep -m1 -E '^\s*- \[ \]' <<<"$t" | grep -c 'Gate:')
       for k in owner rescue gate; do
         b=$(awk -v k="$k" '$2==k' <<<"$mine" | head -1)
         [ -z "$b" ] && continue
@@ -117,6 +120,10 @@ for id in $ids; do
         state=parked; detail="$([ "$k" = rescue ] && echo rescue || echo owner) #$(cut -d' ' -f1 <<<"$b")"; break
       done
     fi
+    # A Gate: task is the owner's or the lead's, so a change whose next task is one is never worker work, issue or not
+    # (observed 2026-11: one change fired 16 times in a day on its workflow gate).
+    if { [ "$state" = ready ] || [ "$state" = stackable ]; } && [ "$gate_next" = 1 ]; then
+      state=parked; detail="gate $(grep -m1 -E '^\s*- \[ \]' <<<"$t" | awk '{print $4}')"; fi
     if { [ "$state" = ready ] || [ "$state" = stackable ]; } && unrelated "$id"; then state=blocked; detail="unrelated history on claude/change-$id"; fi
     if [ "$state" = ready ] || [ "$state" = stackable ] && [ "${OFFLINE:-0}" != 1 ]; then
       h=$(bash "$here/run-lock.sh" holder "status-check" "$id" 2>/dev/null) || h="lock state unknown"  # fail closed
