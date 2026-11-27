@@ -191,9 +191,14 @@ jobs:
             done
             # Split layout: a code PR on claude/change-<id> is complete when the plan repo's branch has all tasks ticked.
             if [ "$PLAN_REPO" != "$GITHUB_REPOSITORY" ] && [[ "$HEAD_REF" == claude/change-* ]]; then
-              id=${HEAD_REF#claude/change-}
-              t=$(git -C .crew/plan show "origin/$HEAD_REF:$CHANGES/$id/tasks.md" 2>/dev/null) || t=""
-              if [ -z "$t" ]; then echo "::warning::no plan branch $HEAD_REF with $CHANGES/$id/tasks.md; completeness not checked"
+              # Ticks live on the newest of claude/change-<id> and its push-pr.sh -r<n> rebranches (as change-status.sh
+              # reads them); an archived change is complete. Observed 2026-11: a finished PR failed for days on the stale base branch.
+              id=$(sed -E 's/(-r[0-9]+)+$//' <<<"${HEAD_REF#claude/change-}")
+              b=$(git -C .crew/plan for-each-ref --sort=-committerdate --count=1 --format='%(refname:short)' \
+                "refs/remotes/origin/claude/change-$id" "refs/remotes/origin/claude/change-$id-r*")
+              t=$(git -C .crew/plan show "${b:-origin/$HEAD_REF}:$CHANGES/$id/tasks.md" 2>/dev/null) || t=""
+              if compgen -G ".crew/plan/$CHANGES/archive/*-$id" >/dev/null; then :
+              elif [ -z "$t" ]; then echo "::warning::no plan branch claude/change-$id with $CHANGES/$id/tasks.md; completeness not checked"
               elif grep -qE '^\s*- \[ \]' <<<"$t"; then st failure "unchecked tasks in plan change $id"; echo "::error::unchecked tasks in plan change $id"; exit 1; fi
             fi
           fi
