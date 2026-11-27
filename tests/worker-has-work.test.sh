@@ -53,4 +53,7 @@ check "own planning PR without auto-merge is work" '[]' '[]' 'work: planning PR 
 check "another role's planning PR is not work" '[]' '[]' 'idle' 1 worker-a
 echo '{"allow_auto_merge":false}' >"$t/fx/repo.json"
 check "plan repo without auto-merge: planning PR is not work" '[]' '[]' 'idle' 1 worker-b
+echo '[]' >"$t/fx/pulls.json"; echo '{"workflow_runs":[{"conclusion":"failure"}]}' >"$t/fx/main.json"
+check "red main is default_worker's" '[]' '[]' 'work: main CI is red' 0 worker-a
+check "red main does not wake another worker" '[]' '[]' 'idle' 1 worker-b
 echo "worker-has-work.test: $pass passed, $failn failed"; [ "$failn" = 0 ]

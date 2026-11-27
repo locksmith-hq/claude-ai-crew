@@ -22,9 +22,9 @@ mine='select(env.me == "" or (.user.login as $l | env.me | split("\n") | index($
 n=$(gh api "repos/$CODE_REPO/issues?labels=review-failed&state=open" -q "[.[]|select(.pull_request)|$mine]|length")
 [ "$n" -gt 0 ] && work+=("$n of your PR(s) failed merge review")
 
-# Red main CI
+# Red main CI goes to default_worker only (observed 2026-11: one red main fired all three workers in 5 min)
 c=$(gh api "repos/$CODE_REPO/actions/workflows/$ci_file/runs?branch=main&per_page=1" -q '.workflow_runs[0].conclusion // ""')
-[ "$c" = failure ] && work+=("main CI is red")
+[ "$c" = failure ] && { [ -z "$AGENT_PERSONA" ] || [ "$AGENT_PERSONA" = "$(crew_get .default_worker)" ]; } && work+=("main CI is red")
 
 # Open change PRs whose latest ci run failed (fix them first), unless an open needs-rescue issue names the change
 # (matched like change-status.sh): the lead has it, so waking a worker for it is wasted.

@@ -69,4 +69,9 @@ cd "$P" || exit 1; git update-ref refs/remotes/origin/claude/change-k1-api HEAD
 git switch -qc claude/change-k1-api-r1; sed -i.bak 's/- \[ \] 2.1/- [x] 2.1/' changes/k1-api/tasks.md; rm -f changes/k1-api/*.bak
 GIT_COMMITTER_DATE='2030-01-01T00:00:00Z' git commit -qam tick; git update-ref refs/remotes/origin/claude/change-k1-api-r1 HEAD; git switch -q main
 expect k1-api "review"
+# A next Gate: task parks the change even with no issue open; a dependency archived while its code PR is open is a branch.
+mk g2-gate '' '- [x] 1.1 a\n- [ ] 1.2 Gate: the lead adds a workflow job\n'; expect g2-gate "parked gate 1.2"; rm -rf changes/g2-gate
+mk d1-dep 'x-depends_on: [a0-base]' '- [ ] 1.1 a\n'
+own d1-dep 'claude/change-a0-base-r2\tacme-a[bot]' 'stackable on a0-base' 'archived dependency with an open code PR'
+own d1-dep 'claude/change-a0-based\tacme-a[bot]' 'ready' 'archived dependency, similar id'; rm -rf changes/d1-dep
 echo "change-status.test: $pass passed, $failn failed"; [ "$failn" = 0 ]
